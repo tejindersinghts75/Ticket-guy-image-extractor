@@ -1,0 +1,235 @@
+
+
+
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Simple Image Data Extractor</title>
+</head>
+<body>
+<input type="file" id="imageFiles" accept="image/*" multiple />
+<script>
+document.getElementById('imageFiles').addEventListener('change', async (e) => {
+  const files = e.target.files;
+  if (files.length === 0) {
+    alert('Please select at least one image.');
+    return;
+  }
+  const formData = new FormData();
+  for (const file of files) {
+    formData.append('images', file);
+  }
+  try {
+    const response = await fetch('/extract-data', {
+      method: 'POST',
+      body: formData,
+    });
+    if (!response.ok) {
+      const err = await response.json();
+      alert('Failed to extract data: ' + (err.error || response.statusText));
+      return;
+    }
+    const data = await response.json();
+    console.log('Extracted data:', data);
+  } catch (error) {
+    alert('Error: ' + error.message);
+  }
+});
+</script>
+</body>
+</html> 
+
+
+
+
+
+
+
+<!-- <!DOCTYPE html>
+  <html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Creative Drag and Drop Upload</title>
+    <style>
+      .drop-zone {
+        width: 100%;
+
+        height: 50px;
+        border: 2px dashed #4190ff;
+        border-radius: 8px;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        color: #4f4f4f;
+        font-size: 16px;
+        cursor: pointer;
+        
+        transition: background-color 0.3s, border-color 0.3s;
+        gap: 10px;
+        user-select: none;
+      }
+      .drop-zone.dragover {
+        background-color: #f0f0f0;
+        border-color: #333333;
+        color: #333333;
+      }
+      .drop-icon {
+        width: 24px;
+        height: 24px;
+      }
+      input[type="file"] {
+        display: none;
+      }
+      .file-pill {
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        background: #f5fafe;
+        border-radius: 16px;
+        padding: 5px 12px 5px 12px;
+        margin: 14px auto 0 auto;
+        box-shadow: 0 2px 8px rgba(65,144,255,0.11);
+        color: #177fff;
+        max-width: 400px;
+        font-size: 12px;
+        word-break: break-word;
+      }
+      .file-pill img {
+        width: 22px;
+        height: 22px;
+        margin-right: 10px;
+        flex-shrink: 0;
+      }
+      .file-pill .remove-btn {
+        margin-left: 5px;
+        color: #177fff;
+        background: none;
+        border: none;
+        font-size: 16px;
+        cursor: pointer;
+        border-radius: 50%;
+        width: 28px;
+        height: 28px;
+        transition: background 0.2s;
+      }
+      .file-pill .remove-btn:hover {
+        background: #e9f3ff;
+      }
+      .browse-link {
+        color: #007bff;
+        text-decoration: underline;
+        cursor: pointer;
+      }
+    </style>
+  </head>
+  <body>
+
+  <div class="drop-zone" id="dropZone" aria-label="File Upload Zone" tabindex="0" role="button">
+    <img src="https://cdn.prod.website-files.com/68dcf34bb466902e315616b8/68dcf34db466902e31561763_Cloud%20Upload.svg" alt="Upload Icon" class="drop-icon" />
+    Drag & Drop your file here or&nbsp;
+    <span class="browse-link" id="browseLink">browse</span>
+  </div>
+
+  <input type="file" id="fileInput" aria-label="File Upload Input" multiple />
+
+  <div id="fileDisplayContainer" role="region" aria-live="polite"></div>
+
+  <script>
+    const dropZone = document.getElementById('dropZone');
+    const fileInput = document.getElementById('fileInput');
+    const browseLink = document.getElementById('browseLink');
+    const fileDisplayContainer = document.getElementById('fileDisplayContainer');
+
+    dropZone.addEventListener('click', () => {
+      fileInput.click();
+    });
+    browseLink.addEventListener('click', e => {
+      e.stopPropagation();
+      fileInput.click();
+    });
+    dropZone.addEventListener('keydown', e => {
+      if (e.key === 'Enter' || e.key === ' ') {
+        e.preventDefault();
+        fileInput.click();
+      }
+    });
+
+    fileInput.addEventListener('change', () => {
+      if(fileInput.files.length > 0){
+        showFilePill(fileInput.files[0].name);
+      } else {
+        clearFilePill();
+      }
+    });
+
+    dropZone.addEventListener('dragover', e => {
+      e.preventDefault();
+      dropZone.classList.add('dragover');
+    });
+
+    dropZone.addEventListener('dragleave', e => {
+      dropZone.classList.remove('dragover');
+    });
+
+    dropZone.addEventListener('drop', e => {
+      e.preventDefault();
+      dropZone.classList.remove('dragover');
+      const files = e.dataTransfer.files;
+      if (files.length > 0) {
+        fileInput.files = files;
+        showFilePill(files[0].name);
+      }
+    });
+
+    function showFilePill(fileName) {
+      fileDisplayContainer.innerHTML = `
+        <div class="file-pill">
+          <img src="https://cdn.prod.website-files.com/68dcf34bb466902e315616b8/68dcf34db466902e31561763_Cloud%20Upload.svg" alt="File icon" />
+          <span>${fileName}</span>
+          <button class="remove-btn" aria-label="Remove file" onclick="removeFile()">&#10005;</button>
+        </div>
+      `;
+    }
+
+    function clearFilePill() {
+      fileDisplayContainer.innerHTML = '';
+      fileInput.value = '';
+    }
+
+    function removeFile() {
+      clearFilePill();
+    }
+  </script>
+<script>
+document.getElementById('fileInput').addEventListener('change', async (e) => {
+  const files = e.target.files;
+  if (files.length === 0) {
+    alert('Please select at least one image.');
+    return;
+  }
+  const formData = new FormData();
+  for (const file of files) {
+    formData.append('images', file);
+  }
+  try {
+    const response = await fetch('https://ticketguyimageextractor.vercel.app/extract-data', {
+      method: 'POST',
+      body: formData,
+    });
+    if (!response.ok) {
+      const err = await response.json();
+      alert('Failed to extract data: ' + (err.error || response.statusText));
+      return;
+    }
+    const data = await response.json();
+    console.log('Extracted data:', data);
+  } catch (error) {
+    alert('Error: ' + error.message);
+  }
+});
+</script>
+  </body>
+  </html> -->
