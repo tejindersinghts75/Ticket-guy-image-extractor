@@ -97,17 +97,16 @@ async function saveToFirestore(sessionId, userId, extractedData, filename) {
   }
 
   try {
-    // ✅ ADD: { merge: true } option
-await db.collection('tickets').doc(sessionId).set({
-  status: 'extracted',
-  processingStatus: 'completed',
-  extractedData: extractedData,
-  extractedAt: new Date(),
-  userId: userId,
-  fileName: filename,
-  sessionId: sessionId, // Add this field too
-  createdAt: new Date() // Add creation timestamp
-}, { merge: true }); // ← THIS IS CRITICAL
+    await db.collection('tickets').doc(sessionId).set({
+      status: 'extracted',
+      processingStatus: 'completed',
+      extractedData: extractedData,
+      extractedAt: new Date(),
+      userId: userId,
+      fileName: filename,
+      sessionId: sessionId,
+      createdAt: new Date()
+    }, { merge: true });
     console.log('✅ Extracted data saved to Firestore for session:', sessionId);
     return true;
   } catch (error) {
@@ -252,7 +251,7 @@ app.post('/extract-data', upload.array('images', 5), async (req, res) => {
         extractedData,
         analysis,
         imageInfo,
-        savedToFirestore: !!(sessionId && userId) // Indicate if data was saved
+        savedToFirestore: !!(sessionId && userId)
       });
     }
 
@@ -279,6 +278,146 @@ app.post('/extract-data', upload.array('images', 5), async (req, res) => {
         try { fs.unlinkSync(file.path); } catch(e){}
       }
     }
+  }
+});
+
+// ✅ NEW ENDPOINT FOR MOBILE UPLOADS (IMAGE URLS)
+app.post('/extract-data-from-url', async (req, res) => {
+  const startTime = Date.now();
+  
+  const { imageUrl, sessionId, userId, dataSource = 'mobile_upload' } = req.body;
+  
+  console.log('🔄 Processing extraction from URL:', { 
+    sessionId, 
+    userId, 
+    imageUrl: imageUrl ? 'URL provided' : 'No URL'
+  });
+
+  try {
+    if (!imageUrl) {
+      return res.status(400).json({ error: 'No image URL provided' });
+    }
+
+    // Download image from URL
+    const imageResponse = await fetch(imageUrl);
+    if (!imageResponse.ok) {
+      throw new Error(`Failed to download image: ${imageResponse.statusText}`);
+    }
+
+    const imageBuffer = await imageResponse.arrayBuffer();
+    const imageBase64 = Buffer.from(imageBuffer).toString('base64');
+
+    // Use your existing OpenAI extraction logic
+    const systemPrompt = `You are an expert data extraction AI. Your job is to analyze images and extract structured data from them.
+
+    Please extract all readable text and data from the image and format it as a JSON object with consistent field names. 
+
+    For documents like forms, tickets, receipts, or any structured document, please organize the data logically with clear field names.
+
+    Common fields to look for and standardize:
+    - Names: firstname, middlename, lastname, fullname
+    - Dates: date, issuedate, duedate, birthdate
+    - Addresses: address, street, city, state, zipcode
+    - IDs: id, ticketno, licenseno, caseno
+    - Amounts: amount, fine, fee, total
+    - Vehicle info: make, model, year, color, plate, vin
+    - Locations: location, intersection, zone
+    - Times: time, datetime
+    - Other relevant fields based on document type
+
+    Always return valid JSON with meaningful field names. If a field is not present, omit it from the JSON rather than including null values.
+
+    Also provide a brief analysis of what type of document this appears to be and what information was extracted.`;
+
+    const userPrompt = `Please analyze this image and extract all structured data from it. Return the data in a clean JSON format with consistent field names, and provide a brief analysis of the document type.`;
+
+    const response = await openai.chat.completions.create({
+      model: "gpt-4o-mini",
+      messages: [
+        {
+          role: "system",
+          content: systemPrompt
+        },
+        {
+          role: "user",
+          content: [
+            {
+              type: "text",
+              text: userPrompt
+            },
+            {
+              type: "image_url",
+              image_url: {
+                url: `data:image/jpeg;base64,${imageBase64}`,
+                detail: "high"
+              }
+            }
+          ]
+        }
+      ],
+      max_tokens: 1500,
+      temperature: 0.1
+    });
+
+    const aiResponse = response.choices[0].message.content;
+    let extractedData = {};
+    let analysis = "";
+
+    // Parse JSON from response (same as your existing code)
+    try {
+      const jsonMatch = aiResponse.match(/```json\n([\s\S]*?)\n```/) || 
+                      aiResponse.match(/```([\s\S]*?)```/) ||
+                      aiResponse.match(/\{[\s\S]*\}/);
+
+      if (jsonMatch) {
+        const jsonString = jsonMatch[1] || jsonMatch[0];
+        extractedData = JSON.parse(jsonString);
+        analysis = aiResponse.replace(jsonMatch[0], '').trim();
+        if (!analysis) analysis = "Data successfully extracted from the image.";
+      } else {
+        try {
+          extractedData = JSON.parse(aiResponse);
+          analysis = "Data successfully extracted and parsed.";
+        } catch (e) {
+          extractedData = { rawText: aiResponse };
+          analysis = "Could not parse structured data, raw text provided.";
+        }
+      }
+    } catch (parseError) {
+      extractedData = { error: "Could not parse structured data", rawResponse: aiResponse };
+      analysis = "The AI provided a response but it could not be parsed as structured JSON.";
+    }
+
+    // Save to Firestore
+    if (sessionId && userId) {
+      const saveSuccess = await saveToFirestore(sessionId, userId, extractedData, 'mobile_upload');
+      if (saveSuccess) {
+        console.log('✅ Data saved to Firestore for user:', userId);
+      }
+    }
+
+    const processingTime = Date.now() - startTime;
+    
+    res.json({
+      success: true,
+      processingTime,
+      sessionId,
+      userId,
+      results: [{
+        filename: 'from_url',
+        extractedData,
+        analysis,
+        imageInfo: { size: 'Unknown', type: 'from_url', dimensions: 'Unknown' },
+        savedToFirestore: !!(sessionId && userId)
+      }]
+    });
+
+  } catch (error) {
+    console.error('Error processing image from URL:', error);
+    res.status(500).json({
+      error: 'Failed to process image from URL',
+      details: error.message
+    });
   }
 });
 
