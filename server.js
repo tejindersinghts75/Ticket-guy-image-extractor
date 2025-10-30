@@ -6,13 +6,24 @@ const fs = require('fs');
 const path = require('path');
 const { initializeApp, cert } = require('firebase-admin/app');
 const { getFirestore } = require('firebase-admin/firestore');
-require('dotenv').config();
+// ✅ FIX: Remove dotenv or make it optional
+try {
+  require('dotenv').config();
+  console.log('✅ .env file loaded (local development)');
+} catch (e) {
+  console.log('ℹ️  No .env file found, using environment variables (production)');
+}
 
 const app = express();
 app.use(cors());
 
 const PORT = process.env.PORT || 3000;
-
+// ✅ ADD DEBUG LOGGING TO CHECK ENV VARS
+console.log('🔑 Environment Variables Check:');
+console.log('OPENAI_API_KEY exists:', !!process.env.OPENAI_API_KEY);
+console.log('FIREBASE_PROJECT_ID exists:', !!process.env.FIREBASE_PROJECT_ID);
+console.log('FIREBASE_CLIENT_EMAIL exists:', !!process.env.FIREBASE_CLIENT_EMAIL);
+console.log('FIREBASE_PRIVATE_KEY exists:', !!process.env.FIREBASE_PRIVATE_KEY);
 // ✅ ADD FIREBASE ADMIN INITIALIZATION
 let db;
 try {
@@ -434,8 +445,8 @@ app.use((error, req, res, next) => {
 // Start server
 app.listen(PORT, () => {
   console.log(`🚀 Server running on port ${PORT}`);
-  if (!fs.existsSync('.env')) {
-    console.log('⚠️  .env file not found. Please create one with:');
-    console.log('OPENAI_API_KEY=your_openai_api_key_here');
-  }
+  // if (!fs.existsSync('.env')) {
+  //   console.log('⚠️  .env file not found. Please create one with:');
+  //   console.log('OPENAI_API_KEY=your_openai_api_key_here');
+  // }
 });
