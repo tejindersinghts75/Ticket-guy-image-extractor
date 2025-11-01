@@ -100,28 +100,75 @@ function getImageInfo(filePath, originalname) {
   };
 }
 
-// ✅ NEW: Function to save extracted data to Firestore
-async function saveToFirestore(sessionId, userId, extractedData, filename) {
+// ✅ ENHANCED: Function to save extracted data to Firestore WITH DASHBOARD FIELDS
+async function saveToFirestore(sessionId, userId, extractedData, filename, email) {
   if (!db) {
     console.log('⚠️ Firestore not available - skipping database save');
     return false;
   }
 
   try {
+    // ✅ STATUS MESSAGES FOR DASHBOARD (CLIENTS SEE THESE)
+    const statusMessages = {
+      approval_pending: "We need more information before approving your case. You will receive a call or email requesting additional information. If you have already been contacted by our team, please upload the requested documents below.",
+      case_approved: "Congratulations! Your case is approved. You'll receive an email when the status of your case changes or if we need any communications from you.",
+      case_in_progress: "Your case is in progress. If you have not received any calls or emails from us, it means our legal team is working on your case. You'll receive an email when the status of your case changes.",
+      case_dismissed: "Congratulations. Our legal team has won your case. No further action is needed unless our legal team contacts you.",
+      case_appealed: "Your case has been appealed. Our legal team is working on the next steps. You'll receive updates via email.",
+      case_requires_attention: "Your case requires additional attention. Our team will contact you shortly with more information."
+    };
+
+    // ✅ CREATE/UPDATE TICKET WITH DASHBOARD FIELDS
     await db.collection('tickets').doc(sessionId).set({
+      // Your existing fields:
       status: 'extracted',
       processingStatus: 'completed',
       extractedData: extractedData,
       extractedAt: new Date(),
       userId: userId,
+      email: email, // Make sure email is included
       fileName: filename,
       sessionId: sessionId,
-      createdAt: new Date()
+      createdAt: new Date(),
+      
+      // ✅ NEW DASHBOARD FIELDS:
+      caseStatus: 'approval_pending', // Default starting status
+      statusHistory: [{
+        status: 'approval_pending',
+        timestamp: new Date(),
+        updatedBy: 'system',
+        notes: 'Ticket uploaded and AI extraction completed'
+      }],
+      clientMessages: statusMessages,
+      requiredDocuments: [], // For upload functionality
+      lastUpdated: new Date()
     }, { merge: true });
-    console.log('✅ Extracted data saved to Firestore for session:', sessionId);
+    
+    console.log('✅ Ticket with dashboard fields saved to Firestore:', sessionId);
+    
+    // ✅ AUDIT LOG
+    await db.collection('audit-logs').add({
+      action: 'ticket_created_with_dashboard',
+      timestamp: new Date(),
+      sessionId: sessionId,
+      userId: userId,
+      email: email,
+      status: 'success'
+    });
+    
     return true;
   } catch (error) {
     console.error('❌ Error saving to Firestore:', error);
+    
+    // Error audit log
+    await db.collection('audit-logs').add({
+      action: 'ticket_creation_failed',
+      timestamp: new Date(),
+      sessionId: sessionId,
+      error: error.message,
+      status: 'failed'
+    });
+    
     return false;
   }
 }
@@ -244,7 +291,8 @@ app.post('/extract-data', upload.array('images', 5), async (req, res) => {
 
         // ✅ NEW: SAVE TO FIRESTORE AFTER SUCCESSFUL EXTRACTION
         if (sessionId && userId) {
-          const saveSuccess = await saveToFirestore(sessionId, userId, extractedData, file.originalname);
+           const userEmail = req.body.email;
+          const saveSuccess = await saveToFirestore(sessionId, userId, extractedData, file.originalname, userEmail);
           if (saveSuccess) {
             console.log('✅ Data saved to Firestore for user:', userId);
           }
@@ -401,7 +449,8 @@ app.post('/extract-data-from-url', async (req, res) => {
 
     // Save to Firestore
     if (sessionId && userId) {
-      const saveSuccess = await saveToFirestore(sessionId, userId, extractedData, 'mobile_upload');
+      const userEmail = req.body.email;
+      const saveSuccess = await saveToFirestore(sessionId, userId, extractedData, 'mobile_upload',userEmail);
       if (saveSuccess) {
         console.log('✅ Data saved to Firestore for user:', userId);
       }
