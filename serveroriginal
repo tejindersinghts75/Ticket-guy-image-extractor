@@ -6,44 +6,6 @@ const fs = require('fs');
 const path = require('path');
 const { initializeApp, cert } = require('firebase-admin/app');
 const { getFirestore } = require('firebase-admin/firestore');
-
-// ✅ SIMPLE MODE SWITCH - Change this value
-const MODE = 'test'; // Change to 'prod' for real AI extraction
-
-// ✅ MOCK DATA EXTRACTION FUNCTION
-function mockDataExtraction() {
-  console.log('🔄 Using MOCK DATA for extraction');
-  
-  return {
-    citation_number: "MOCK" + Math.random().toString().slice(2, 8),
-    issue_date: new Date().toLocaleDateString('en-US'),
-    violation: {
-      citation: "Speeding in School Zone",
-      alleged_speed: "44",
-      posted_speed: "30", 
-      school_zone: "Yes"
-    },
-    location_information: {
-      location: "1400 E BORGFELD DR"
-    },
-    vehicle_information: {
-      make: "HONDA",
-      model: "CIVIC",
-      year: "2022", 
-      color: "BLUE",
-      license_plate: "MOCK123",
-      state: "TX"
-    },
-    violator_information: {
-      first_name: "JOHN",
-      last_name: "DOE",
-      driver_license_number: "DL123456",
-      city: "SAN ANTONIO", 
-      state: "TX"
-    }
-  };
-}
-
 // ✅ FIX: Remove dotenv or make it optional
 try {
   require('dotenv').config();
@@ -62,8 +24,6 @@ console.log('OPENAI_API_KEY exists:', !!process.env.OPENAI_API_KEY);
 console.log('FIREBASE_PROJECT_ID exists:', !!process.env.FIREBASE_PROJECT_ID);
 console.log('FIREBASE_CLIENT_EMAIL exists:', !!process.env.FIREBASE_CLIENT_EMAIL);
 console.log('FIREBASE_PRIVATE_KEY exists:', !!process.env.FIREBASE_PRIVATE_KEY);
-console.log('🔄 CURRENT MODE:', MODE);
-
 // ✅ ADD FIREBASE ADMIN INITIALIZATION
 let db;
 try {
@@ -248,100 +208,90 @@ app.post('/extract-data', upload.array('images', 5), async (req, res) => {
       try {
         const imageBase64 = encodeImageToBase64(file.path);
 
-        // ✅ SIMPLE SWITCH: TEST vs PROD
-        if (MODE === 'test') {
-          // USE MOCK DATA
-          console.log('🔄 Using MOCK DATA for extraction (TEST mode)');
-          extractedData = mockDataExtraction();
-          analysis = "Mock data generated for testing - MODE: test";
-        } else {
-          // USE REAL OPENAI API
-          console.log('🔄 Using REAL OpenAI API (PROD mode)');
-          
-          // Prepare prompt for structured data extraction
-          const systemPrompt = `You are an expert data extraction AI. Your job is to analyze images and extract structured data from them.
+        // Prepare prompt for structured data extraction
+        const systemPrompt = `You are an expert data extraction AI. Your job is to analyze images and extract structured data from them.
 
-          Please extract all readable text and data from the image and format it as a JSON object with consistent field names. 
+        Please extract all readable text and data from the image and format it as a JSON object with consistent field names. 
 
-          For documents like forms, tickets, receipts, or any structured document, please organize the data logically with clear field names.
+        For documents like forms, tickets, receipts, or any structured document, please organize the data logically with clear field names.
 
-          Common fields to look for and standardize:
-          - Names: firstname, middlename, lastname, fullname
-          - Dates: date, issuedate, duedate, birthdate
-          - Addresses: address, street, city, state, zipcode
-          - IDs: id, ticketno, licenseno, caseno
-          - Amounts: amount, fine, fee, total
-          - Vehicle info: make, model, year, color, plate, vin
-          - Locations: location, intersection, zone
-          - Times: time, datetime
-          - Other relevant fields based on document type
+        Common fields to look for and standardize:
+        - Names: firstname, middlename, lastname, fullname
+        - Dates: date, issuedate, duedate, birthdate
+        - Addresses: address, street, city, state, zipcode
+        - IDs: id, ticketno, licenseno, caseno
+        - Amounts: amount, fine, fee, total
+        - Vehicle info: make, model, year, color, plate, vin
+        - Locations: location, intersection, zone
+        - Times: time, datetime
+        - Other relevant fields based on document type
 
-          Always return valid JSON with meaningful field names. If a field is not present, omit it from the JSON rather than including null values.
+        Always return valid JSON with meaningful field names. If a field is not present, omit it from the JSON rather than including null values.
 
-          Also provide a brief analysis of what type of document this appears to be and what information was extracted.`;
+        Also provide a brief analysis of what type of document this appears to be and what information was extracted.`;
 
-          const userPrompt = `Please analyze this image and extract all structured data from it. Return the data in a clean JSON format with consistent field names, and provide a brief analysis of the document type.`;
+        const userPrompt = `Please analyze this image and extract all structured data from it. Return the data in a clean JSON format with consistent field names, and provide a brief analysis of the document type.`;
 
-          const response = await openai.chat.completions.create({
-            model: "gpt-4o-mini",
-            messages: [
-              {
-                role: "system",
-                content: systemPrompt
-              },
-              {
-                role: "user",
-                content: [
-                  {
-                    type: "text",
-                    text: userPrompt
-                  },
-                  {
-                    type: "image_url",
-                    image_url: {
-                      url: `data:image/jpeg;base64,${imageBase64}`,
-                      detail: "high"
-                    }
+        // Make API call to OpenAI
+        const response = await openai.chat.completions.create({
+          model: "gpt-4o-mini",
+          messages: [
+            {
+              role: "system",
+              content: systemPrompt
+            },
+            {
+              role: "user",
+              content: [
+                {
+                  type: "text",
+                  text: userPrompt
+                },
+                {
+                  type: "image_url",
+                  image_url: {
+                    url: `data:image/jpeg;base64,${imageBase64}`,
+                    detail: "high"
                   }
-                ]
-              }
-            ],
-            max_tokens: 1500,
-            temperature: 0.1
-          });
-
-          const aiResponse = response.choices[0].message.content;
-
-          // Try to parse JSON from the response
-          try {
-            // Look for JSON in the response
-            const jsonMatch = aiResponse.match(/```json\n([\s\S]*?)\n```/) || 
-                            aiResponse.match(/```([\s\S]*?)```/) ||
-                            aiResponse.match(/\{[\s\S]*\}/);
-
-            if (jsonMatch) {
-              const jsonString = jsonMatch[1] || jsonMatch[0];
-              extractedData = JSON.parse(jsonString);
-              analysis = aiResponse.replace(jsonMatch[0], '').trim();
-              if (!analysis) analysis = "Data successfully extracted from the image.";
-            } else {
-              try {
-                extractedData = JSON.parse(aiResponse);
-                analysis = "Data successfully extracted and parsed.";
-              } catch (e) {
-                extractedData = { rawText: aiResponse };
-                analysis = "Could not parse structured data, raw text provided.";
-              }
+                }
+              ]
             }
-          } catch (parseError) {
-            extractedData = { error: "Could not parse structured data", rawResponse: aiResponse };
-            analysis = "The AI provided a response but it could not be parsed as structured JSON.";
+          ],
+          max_tokens: 1500,
+          temperature: 0.1
+        });
+
+        const aiResponse = response.choices[0].message.content;
+
+        // Try to parse JSON from the response
+        try {
+          // Look for JSON in the response
+          const jsonMatch = aiResponse.match(/```json\n([\s\S]*?)\n```/) || 
+                          aiResponse.match(/```([\s\S]*?)```/) ||
+                          aiResponse.match(/\{[\s\S]*\}/);
+
+          if (jsonMatch) {
+            const jsonString = jsonMatch[1] || jsonMatch[0];
+            extractedData = JSON.parse(jsonString);
+            analysis = aiResponse.replace(jsonMatch[0], '').trim();
+            if (!analysis) analysis = "Data successfully extracted from the image.";
+          } else {
+            try {
+              extractedData = JSON.parse(aiResponse);
+              analysis = "Data successfully extracted and parsed.";
+            } catch (e) {
+              extractedData = { rawText: aiResponse };
+              analysis = "Could not parse structured data, raw text provided.";
+            }
           }
+        } catch (parseError) {
+          extractedData = { error: "Could not parse structured data", rawResponse: aiResponse };
+          analysis = "The AI provided a response but it could not be parsed as structured JSON.";
         }
 
         // ✅ NEW: SAVE TO FIRESTORE AFTER SUCCESSFUL EXTRACTION
         if (sessionId && userId) {
-          const userEmail = req.body.email;
+           const userEmail = req.body.email;
           const saveSuccess = await saveToFirestore(sessionId, userId, extractedData, file.originalname, userEmail);
           if (saveSuccess) {
             console.log('✅ Data saved to Firestore for user:', userId);
@@ -349,7 +299,6 @@ app.post('/extract-data', upload.array('images', 5), async (req, res) => {
         }
 
       } catch (imgErr) {
-        console.error('❌ Extraction error:', imgErr);
         extractedData = { error: "Image extraction failed", details: imgErr.message };
         analysis = "";
       } finally {
@@ -417,102 +366,91 @@ app.post('/extract-data-from-url', async (req, res) => {
     const imageBuffer = await imageResponse.arrayBuffer();
     const imageBase64 = Buffer.from(imageBuffer).toString('base64');
 
+    // Use your existing OpenAI extraction logic
+    const systemPrompt = `You are an expert data extraction AI. Your job is to analyze images and extract structured data from them.
+
+    Please extract all readable text and data from the image and format it as a JSON object with consistent field names. 
+
+    For documents like forms, tickets, receipts, or any structured document, please organize the data logically with clear field names.
+
+    Common fields to look for and standardize:
+    - Names: firstname, middlename, lastname, fullname
+    - Dates: date, issuedate, duedate, birthdate
+    - Addresses: address, street, city, state, zipcode
+    - IDs: id, ticketno, licenseno, caseno
+    - Amounts: amount, fine, fee, total
+    - Vehicle info: make, model, year, color, plate, vin
+    - Locations: location, intersection, zone
+    - Times: time, datetime
+    - Other relevant fields based on document type
+
+    Always return valid JSON with meaningful field names. If a field is not present, omit it from the JSON rather than including null values.
+
+    Also provide a brief analysis of what type of document this appears to be and what information was extracted.`;
+
+    const userPrompt = `Please analyze this image and extract all structured data from it. Return the data in a clean JSON format with consistent field names, and provide a brief analysis of the document type.`;
+
+    const response = await openai.chat.completions.create({
+      model: "gpt-4o-mini",
+      messages: [
+        {
+          role: "system",
+          content: systemPrompt
+        },
+        {
+          role: "user",
+          content: [
+            {
+              type: "text",
+              text: userPrompt
+            },
+            {
+              type: "image_url",
+              image_url: {
+                url: `data:image/jpeg;base64,${imageBase64}`,
+                detail: "high"
+              }
+            }
+          ]
+        }
+      ],
+      max_tokens: 1500,
+      temperature: 0.1
+    });
+
+    const aiResponse = response.choices[0].message.content;
     let extractedData = {};
     let analysis = "";
 
-    // ✅ SIMPLE SWITCH: TEST vs PROD
-    if (MODE === 'test') {
-      // USE MOCK DATA
-      console.log('🔄 Using MOCK DATA for URL extraction (TEST mode)');
-      extractedData = mockDataExtraction();
-      analysis = "Mock data generated for testing - MODE: test";
-    } else {
-      // USE REAL OPENAI API
-      console.log('🔄 Using REAL OpenAI API for URL extraction (PROD mode)');
-      
-      const systemPrompt = `You are an expert data extraction AI. Your job is to analyze images and extract structured data from them.
+    // Parse JSON from response (same as your existing code)
+    try {
+      const jsonMatch = aiResponse.match(/```json\n([\s\S]*?)\n```/) || 
+                      aiResponse.match(/```([\s\S]*?)```/) ||
+                      aiResponse.match(/\{[\s\S]*\}/);
 
-      Please extract all readable text and data from the image and format it as a JSON object with consistent field names. 
-
-      For documents like forms, tickets, receipts, or any structured document, please organize the data logically with clear field names.
-
-      Common fields to look for and standardize:
-      - Names: firstname, middlename, lastname, fullname
-      - Dates: date, issuedate, duedate, birthdate
-      - Addresses: address, street, city, state, zipcode
-      - IDs: id, ticketno, licenseno, caseno
-      - Amounts: amount, fine, fee, total
-      - Vehicle info: make, model, year, color, plate, vin
-      - Locations: location, intersection, zone
-      - Times: time, datetime
-      - Other relevant fields based on document type
-
-      Always return valid JSON with meaningful field names. If a field is not present, omit it from the JSON rather than including null values.
-
-      Also provide a brief analysis of what type of document this appears to be and what information was extracted.`;
-
-      const userPrompt = `Please analyze this image and extract all structured data from it. Return the data in a clean JSON format with consistent field names, and provide a brief analysis of the document type.`;
-
-      const response = await openai.chat.completions.create({
-        model: "gpt-4o-mini",
-        messages: [
-          {
-            role: "system",
-            content: systemPrompt
-          },
-          {
-            role: "user",
-            content: [
-              {
-                type: "text",
-                text: userPrompt
-              },
-              {
-                type: "image_url",
-                image_url: {
-                  url: `data:image/jpeg;base64,${imageBase64}`,
-                  detail: "high"
-                }
-              }
-            ]
-          }
-        ],
-        max_tokens: 1500,
-        temperature: 0.1
-      });
-
-      const aiResponse = response.choices[0].message.content;
-
-      // Parse JSON from response (same as your existing code)
-      try {
-        const jsonMatch = aiResponse.match(/```json\n([\s\S]*?)\n```/) || 
-                        aiResponse.match(/```([\s\S]*?)```/) ||
-                        aiResponse.match(/\{[\s\S]*\}/);
-
-        if (jsonMatch) {
-          const jsonString = jsonMatch[1] || jsonMatch[0];
-          extractedData = JSON.parse(jsonString);
-          analysis = aiResponse.replace(jsonMatch[0], '').trim();
-          if (!analysis) analysis = "Data successfully extracted from the image.";
-        } else {
-          try {
-            extractedData = JSON.parse(aiResponse);
-            analysis = "Data successfully extracted and parsed.";
-          } catch (e) {
-            extractedData = { rawText: aiResponse };
-            analysis = "Could not parse structured data, raw text provided.";
-          }
+      if (jsonMatch) {
+        const jsonString = jsonMatch[1] || jsonMatch[0];
+        extractedData = JSON.parse(jsonString);
+        analysis = aiResponse.replace(jsonMatch[0], '').trim();
+        if (!analysis) analysis = "Data successfully extracted from the image.";
+      } else {
+        try {
+          extractedData = JSON.parse(aiResponse);
+          analysis = "Data successfully extracted and parsed.";
+        } catch (e) {
+          extractedData = { rawText: aiResponse };
+          analysis = "Could not parse structured data, raw text provided.";
         }
-      } catch (parseError) {
-        extractedData = { error: "Could not parse structured data", rawResponse: aiResponse };
-        analysis = "The AI provided a response but it could not be parsed as structured JSON.";
       }
+    } catch (parseError) {
+      extractedData = { error: "Could not parse structured data", rawResponse: aiResponse };
+      analysis = "The AI provided a response but it could not be parsed as structured JSON.";
     }
 
     // Save to Firestore
     if (sessionId && userId) {
       const userEmail = req.body.email;
-      const saveSuccess = await saveToFirestore(sessionId, userId, extractedData, 'mobile_upload', userEmail);
+      const saveSuccess = await saveToFirestore(sessionId, userId, extractedData, 'mobile_upload',userEmail);
       if (saveSuccess) {
         console.log('✅ Data saved to Firestore for user:', userId);
       }
@@ -556,5 +494,8 @@ app.use((error, req, res, next) => {
 // Start server
 app.listen(PORT, () => {
   console.log(`🚀 Server running on port ${PORT}`);
-  console.log(`🎯 CURRENT MODE: ${MODE}`);
+  // if (!fs.existsSync('.env')) {
+  //   console.log('⚠️  .env file not found. Please create one with:');
+  //   console.log('OPENAI_API_KEY=your_openai_api_key_here');
+  // }
 });
