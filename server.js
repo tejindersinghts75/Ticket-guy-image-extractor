@@ -14,11 +14,22 @@ const MODE = 'test'; // Change to 'prod' for real AI extraction
 function mockDataExtraction() {
   console.log('🔄 Using MOCK DATA for extraction');
   
-  return {
+   return {
     citation_number: "MOCK" + Math.random().toString().slice(2, 8),
     issue_date: new Date().toLocaleDateString('en-US'),
+    
+    // ✅ SOME FIELDS PRESENT (for testing)
+    first_name: "JOHN",
+    last_name: "DOE",
+    
+    // ❌ MISSING FIELDS (for testing smart form)
+    // middle_name: "", // Missing - will trigger form
+    // phone_number: "", // Missing - will trigger form
+    // county: "", // Missing - will trigger form
+    // is_jp: "", // Missing - will trigger form
+    
     violation: {
-      citation: "Speeding in School Zone",
+      citation: "Speeding in School Zone", // ✅ Has violation
       alleged_speed: "44",
       posted_speed: "30", 
       school_zone: "Yes"
@@ -35,8 +46,6 @@ function mockDataExtraction() {
       state: "TX"
     },
     violator_information: {
-      first_name: "JOHN",
-      last_name: "DOE",
       driver_license_number: "DL123456",
       city: "SAN ANTONIO", 
       state: "TX"
@@ -140,6 +149,48 @@ function getImageInfo(filePath, originalname) {
   };
 }
 
+            // ✅ ✅ ✅ ADD THIS NEW FUNCTION RIGHT HERE ✅ ✅ ✅
+            function checkMissingFields(extractedData, userEmail) {
+              const requiredFields = [
+                'email',
+                'first_name', 
+                'middle_name', 
+                'last_name',
+                'infraction_violation', 
+                'phone_number',
+                'county',
+                'is_jp'
+              ];
+
+              const missingFields = [];
+
+              requiredFields.forEach(field => {
+                if (field === 'email') {
+                  // Use the email from Clerk auth
+                  if (!userEmail || userEmail.trim() === '') {
+                    missingFields.push('email');
+                  }
+                }
+                else if (field === 'infraction_violation') {
+                  // Check violation citation
+                  if (!extractedData.violation?.citation) {
+                    missingFields.push('infraction_violation');
+                  }
+                }
+                else if (!extractedData[field] || extractedData[field].toString().trim() === '') {
+                  missingFields.push(field);
+                }
+              });
+
+              // Special check: If JP=Y, precinct is required
+              if (extractedData.is_jp === 'Y' && (!extractedData.precinct_number || extractedData.precinct_number.trim() === '')) {
+                missingFields.push('precinct_number');
+              }
+
+              return missingFields;
+            }
+            // ✅ ✅ ✅ END OF NEW FUNCTION ✅ ✅ ✅
+
 // ✅ ENHANCED: Function to save extracted data to Firestore WITH DASHBOARD FIELDS
 async function saveToFirestore(sessionId, userId, extractedData, filename, email) {
   if (!db) {
@@ -222,7 +273,6 @@ app.get('/', (req, res) => {
 app.post('/extract-data', upload.array('images', 5), async (req, res) => {
   const startTime = Date.now();
   
-  // ✅ GET SESSION DATA FROM REQUEST BODY
   const { sessionId, userId, dataSource = 'desktop_upload' } = req.body;
   
   console.log('🔄 Processing extraction request:', { 
@@ -239,6 +289,7 @@ app.post('/extract-data', upload.array('images', 5), async (req, res) => {
 
     // Array to hold results for each image
     const results = [];
+    let firstExtractedData = null; // ✅ ADD THIS
 
     for (const file of req.files) {
       let extractedData = {};
@@ -339,7 +390,12 @@ app.post('/extract-data', upload.array('images', 5), async (req, res) => {
           }
         }
 
-        // ✅ NEW: SAVE TO FIRESTORE AFTER SUCCESSFUL EXTRACTION
+        // ✅ STORE FIRST EXTRACTED DATA FOR MISSING FIELDS CHECK
+        if (!firstExtractedData) {
+          firstExtractedData = extractedData; // ✅ Store for later use
+        }
+
+        // ✅ SAVE TO FIRESTORE AFTER SUCCESSFUL EXTRACTION
         if (sessionId && userId) {
           const userEmail = req.body.email;
           const saveSuccess = await saveToFirestore(sessionId, userId, extractedData, file.originalname, userEmail);
@@ -367,13 +423,16 @@ app.post('/extract-data', upload.array('images', 5), async (req, res) => {
 
     const processingTime = Date.now() - startTime;
     
+    // ✅ FIXED: Use firstExtractedData which is now defined
     res.json({
       success: true,
       processingTime,
       imagesProcessed: results.length,
       sessionId,
       userId,
-      results
+      results,
+      missingFields: checkMissingFields(firstExtractedData, req.body.email), // ✅ FIXED
+      isComplete: checkMissingFields(firstExtractedData, req.body.email).length === 0 // ✅ FIXED
     });
 
   } catch (error) {
@@ -531,7 +590,10 @@ app.post('/extract-data-from-url', async (req, res) => {
         analysis,
         imageInfo: { size: 'Unknown', type: 'from_url', dimensions: 'Unknown' },
         savedToFirestore: !!(sessionId && userId)
-      }]
+      }],
+       // ✅ ADD THESE 2 NEW FIELDS:
+      missingFields: checkMissingFields(extractedData, req.body.email),
+      isComplete: checkMissingFields(extractedData, req.body.email).length === 0
     });
 
   } catch (error) {
@@ -542,7 +604,7 @@ app.post('/extract-data-from-url', async (req, res) => {
     });
   }
 });
-
+ 
 // Error handling middleware
 app.use((error, req, res, next) => {
   if (error instanceof multer.MulterError) {
