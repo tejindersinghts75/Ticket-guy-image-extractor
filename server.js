@@ -604,6 +604,49 @@ app.post('/extract-data-from-url', async (req, res) => {
     });
   }
 });
+
+// ✅ ADD THIS NEW ENDPOINT TO YOUR BACKEND
+app.post('/update-ticket', async (req, res) => {
+  const { sessionId, missingFieldsData } = req.body;
+  
+  console.log('🔄 Updating ticket with missing fields:', { sessionId, missingFieldsData });
+
+  try {
+    if (!sessionId || !missingFieldsData) {
+      return res.status(400).json({ error: 'Missing sessionId or missingFieldsData' });
+    }
+
+    // ✅ Update Firestore with Admin SDK (bypasses security rules)
+    const ticketRef = db.collection('tickets').doc(sessionId);
+    
+    // Prepare update data
+    const updateData = {};
+    Object.keys(missingFieldsData).forEach(field => {
+      updateData[`extractedData.${field}`] = missingFieldsData[field];
+    });
+    
+    updateData.status = 'completed';
+    updateData.completedAt = new Date();
+    updateData.lastUpdated = new Date();
+
+    await ticketRef.update(updateData);
+    
+    console.log('✅ Ticket updated successfully:', sessionId);
+    
+    res.json({ 
+      success: true, 
+      message: 'Ticket updated successfully',
+      sessionId: sessionId
+    });
+
+  } catch (error) {
+    console.error('❌ Error updating ticket:', error);
+    res.status(500).json({ 
+      error: 'Failed to update ticket',
+      details: error.message 
+    });
+  }
+});
  
 // Error handling middleware
 app.use((error, req, res, next) => {
