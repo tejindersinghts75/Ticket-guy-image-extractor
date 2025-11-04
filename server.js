@@ -648,6 +648,36 @@ app.post('/update-ticket', async (req, res) => {
   }
 });
  
+// ✅ NEW SECURE ENDPOINT
+app.get('/check-ticket/:sessionId', async (req, res) => {
+  const { sessionId } = req.params;
+  
+  try {
+    const ticketDoc = await db.collection('tickets').doc(sessionId).get();
+    
+    if (!ticketDoc.exists) {
+      return res.json({ exists: false });
+    }
+    
+    const ticketData = ticketDoc.data();
+    const extractedData = ticketData.extractedData || {};
+    
+    // Check missing fields (same logic as before)
+    const missingFields = checkMissingFields(extractedData);
+    
+    res.json({
+      exists: true,
+      status: ticketData.status,
+      missingFields: missingFields,
+      extractedData: extractedData,
+      isComplete: missingFields.length === 0
+    });
+    
+  } catch (error) {
+    res.status(500).json({ error: 'Failed to check ticket' });
+  }
+});
+
 // Error handling middleware
 app.use((error, req, res, next) => {
   if (error instanceof multer.MulterError) {
