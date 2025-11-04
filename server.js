@@ -723,7 +723,8 @@ app.post('/submit-manual-form', async (req, res) => {
     const { sessionId, userId } = sessionData;
 
     // 2. PREPARE DATA (map your form fields)
-    const firestoreData = {
+   // ✅ CORRECTED FIELD MAPPING
+const firestoreData = {
   // Personal Information
   email: formData.email,
   first_name: formData.firstname,
@@ -731,17 +732,17 @@ app.post('/submit-manual-form', async (req, res) => {
   last_name: formData.lastname,
   phone_number: formData.mobileno,
   
-  // Address
+  // Address - USE CORRECT FIELD NAMES
   residence_address: formData.residenceaddress,
-  state: formData.stateSelect,
-  city: formData.citySelect,
+  state: formData.state, // ✅ Was stateSelect (undefined)
+  city: formData.city,   // ✅ Was citySelect (undefined)
   zip_code: formData.zipcodeno,
   
   // Driver Info
   driving_license_no: formData.drivingllicenseno,
   dl_class: formData.dlClass,
   cdl: formData.cdl,
-  date_of_birth: formData.dateofbirth,
+  date_of_birth: formData.dob, // ✅ Was dateofbirth
   sex: formData.sex,
   height: formData.height,
   weight: formData.weight,
@@ -751,8 +752,8 @@ app.post('/submit-manual-form', async (req, res) => {
   
   // Vehicle Info
   license_plate: formData.licenseplate,
-  vehicle_state: formData.vistateSelect,
-  vehicle_regexp: formData.regexp, // ✅ ADDED MISSING FIELD
+  vehicle_state: formData.state, // ✅ Use state instead of vistateSelect
+  vehicle_regexp: formData.regexp,
   vehicle_color: formData.colorvehicle,
   vehicle_make: formData.make,
   vehicle_model: formData.model,
@@ -763,9 +764,9 @@ app.post('/submit-manual-form', async (req, res) => {
   // Citation Info
   citation_number: formData.citationnumber,
   issuing_authority: formData.issuingauthority,
-  issue_date_time: formData.issuedatetime,
+  issue_date_time: formData['issue-datetime'], // ✅ Keep as-is
   violation_date_time: formData.violationdatetime,
-  citation_type: formData.citationtype,
+  citation_type: formData.citation,
   alleged_speed: formData.allegedspeed,
   posted_speed: formData.postedspeed,
   case_no: formData.caseno,
@@ -774,9 +775,9 @@ app.post('/submit-manual-form', async (req, res) => {
   construction_zone: formData.constrzone,
   school_zone: formData.schoolzone,
   accident: formData.accident,
-  knew_race: formData.knewrace, // ✅ ADDED MISSING FIELD
-  search: formData.search, // ✅ ADDED MISSING FIELD
-  contraband: formData.contraband, // ✅ ADDED MISSING FIELD
+  knew_race: formData.knewrace,
+  search: formData.search,
+  contraband: formData.contraband,
   
   // Officer & Court
   officer_name: formData.officername,
@@ -784,7 +785,7 @@ app.post('/submit-manual-form', async (req, res) => {
   court_information: formData.courtinformation,
   court_hours: formData.courtHours,
   
-  // Additional Vehicle Info ✅ ADDED MISSING FIELDS
+  // Additional Vehicle Info
   trailer_plate: formData.trailerplate,
   dot: formData.dot,
   trailer_state: formData.trailerState,
