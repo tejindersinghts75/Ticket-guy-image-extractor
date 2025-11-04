@@ -191,78 +191,92 @@ function getImageInfo(filePath, originalname) {
             }
             // ✅ ✅ ✅ END OF NEW FUNCTION ✅ ✅ ✅
 
-// ✅ ENHANCED: Function to save extracted data to Firestore WITH DASHBOARD FIELDS
-async function saveToFirestore(sessionId, userId, extractedData, filename, email) {
-  if (!db) {
-    console.log('⚠️ Firestore not available - skipping database save');
-    return false;
-  }
+                // ✅ ENHANCED: Function to save extracted data to Firestore WITH DASHBOARD FIELDS
+                async function saveToFirestore(sessionId, userId, extractedData, filename, email, dataSource = 'ai_extraction') {
+                  if (!db) {
+                    console.log('⚠️ Firestore not available - skipping database save');
+                    return false;
+                  }
 
-  try {
-    // ✅ STATUS MESSAGES FOR DASHBOARD (CLIENTS SEE THESE)
-    const statusMessages = {
-      approval_pending: "We need more information before approving your case. You will receive a call or email requesting additional information. If you have already been contacted by our team, please upload the requested documents below.",
-      case_approved: "Congratulations! Your case is approved. You'll receive an email when the status of your case changes or if we need any communications from you.",
-      case_in_progress: "Your case is in progress. If you have not received any calls or emails from us, it means our legal team is working on your case. You'll receive an email when the status of your case changes.",
-      case_dismissed: "Congratulations. Our legal team has won your case. No further action is needed unless our legal team contacts you.",
-      case_appealed: "Your case has been appealed. Our legal team is working on the next steps. You'll receive updates via email.",
-      case_requires_attention: "Your case requires additional attention. Our team will contact you shortly with more information."
-    };
+                  try {
+                    // ✅ STATUS MESSAGES FOR DASHBOARD (CLIENTS SEE THESE)
+                    const statusMessages = {
+                      approval_pending: "We need more information before approving your case. You will receive a call or email requesting additional information. If you have already been contacted by our team, please upload the requested documents below.",
+                      case_approved: "Congratulations! Your case is approved. You'll receive an email when the status of your case changes or if we need any communications from you.",
+                      case_in_progress: "Your case is in progress. If you have not received any calls or emails from us, it means our legal team is working on your case. You'll receive an email when the status of your case changes.",
+                      case_dismissed: "Congratulations. Our legal team has won your case. No further action is needed unless our legal team contacts you.",
+                      case_appealed: "Your case has been appealed. Our legal team is working on the next steps. You'll receive updates via email.",
+                      case_requires_attention: "Your case requires additional attention. Our team will contact you shortly with more information."
+                    };
 
-    // ✅ CREATE/UPDATE TICKET WITH DASHBOARD FIELDS
-    await db.collection('tickets').doc(sessionId).set({
-      // Your existing fields:
-      status: 'extracted',
-      processingStatus: 'completed',
-      extractedData: extractedData,
-      extractedAt: new Date(),
-      userId: userId,
-      email: email, // Make sure email is included
-      fileName: filename,
-      sessionId: sessionId,
-      createdAt: new Date(),
-      
-      // ✅ NEW DASHBOARD FIELDS:
-      caseStatus: 'approval_pending', // Default starting status
-      statusHistory: [{
-        status: 'approval_pending',
-        timestamp: new Date(),
-        updatedBy: 'system',
-        notes: 'Ticket uploaded and AI extraction completed'
-      }],
-      clientMessages: statusMessages,
-      requiredDocuments: [], // For upload functionality
-      lastUpdated: new Date()
-    }, { merge: true });
-    
-    console.log('✅ Ticket with dashboard fields saved to Firestore:', sessionId);
-    
-    // ✅ AUDIT LOG
-    await db.collection('audit-logs').add({
-      action: 'ticket_created_with_dashboard',
-      timestamp: new Date(),
-      sessionId: sessionId,
-      userId: userId,
-      email: email,
-      status: 'success'
-    });
-    
-    return true;
-  } catch (error) {
-    console.error('❌ Error saving to Firestore:', error);
-    
-    // Error audit log
-    await db.collection('audit-logs').add({
-      action: 'ticket_creation_failed',
-      timestamp: new Date(),
-      sessionId: sessionId,
-      error: error.message,
-      status: 'failed'
-    });
-    
-    return false;
-  }
-}
+                    // ✅ DIFFERENT STATUS BASED ON DATA SOURCE
+                    let status, statusNote;
+                    
+                    if (dataSource === 'manual_form') {
+                      status = 'completed';
+                      statusNote = 'Manual form submitted with complete information';
+                    } else {
+                      status = 'extracted';
+                      statusNote = 'Ticket uploaded and AI extraction completed';
+                    }
+
+                    // ✅ CREATE/UPDATE TICKET WITH DASHBOARD FIELDS
+                    await db.collection('tickets').doc(sessionId).set({
+                      // Your existing fields:
+                      status: status, // ✅ Now dynamic
+                      processingStatus: 'completed',
+                      extractedData: extractedData,
+                      extractedAt: new Date(),
+                      userId: userId,
+                      email: email,
+                      fileName: filename,
+                      sessionId: sessionId,
+                      createdAt: new Date(),
+                      dataSource: dataSource, // ✅ Track the source
+                      
+                      // ✅ NEW DASHBOARD FIELDS:
+                      caseStatus: 'approval_pending', // Default starting status
+                      statusHistory: [{
+                        status: 'approval_pending',
+                        timestamp: new Date(),
+                        updatedBy: 'system',
+                        notes: statusNote // ✅ Correct note for each type
+                      }],
+                      clientMessages: statusMessages,
+                      requiredDocuments: [], // For upload functionality
+                      lastUpdated: new Date()
+                    }, { merge: true });
+                    
+                    console.log('✅ Ticket with dashboard fields saved to Firestore:', sessionId);
+                    
+                    // ✅ AUDIT LOG
+                    await db.collection('audit-logs').add({
+                      action: 'ticket_created_with_dashboard',
+                      timestamp: new Date(),
+                      sessionId: sessionId,
+                      userId: userId,
+                      email: email,
+                      dataSource: dataSource, // ✅ Include data source
+                      status: 'success'
+                    });
+                    
+                    return true;
+                  } catch (error) {
+                    console.error('❌ Error saving to Firestore:', error);
+                    
+                    // Error audit log
+                    await db.collection('audit-logs').add({
+                      action: 'ticket_creation_failed',
+                      timestamp: new Date(),
+                      sessionId: sessionId,
+                      error: error.message,
+                      dataSource: dataSource,
+                      status: 'failed'
+                    });
+                    
+                    return false;
+                  }
+                }
 
 // Main route
 app.get('/', (req, res) => {
@@ -398,7 +412,8 @@ app.post('/extract-data', upload.array('images', 5), async (req, res) => {
         // ✅ SAVE TO FIRESTORE AFTER SUCCESSFUL EXTRACTION
         if (sessionId && userId) {
           const userEmail = req.body.email;
-          const saveSuccess = await saveToFirestore(sessionId, userId, extractedData, file.originalname, userEmail);
+     
+          const saveSuccess = await saveToFirestore(sessionId, userId, extractedData, file.originalname, userEmail, 'ai_extraction');
           if (saveSuccess) {
             console.log('✅ Data saved to Firestore for user:', userId);
           }
@@ -571,7 +586,8 @@ app.post('/extract-data-from-url', async (req, res) => {
     // Save to Firestore
     if (sessionId && userId) {
       const userEmail = req.body.email;
-      const saveSuccess = await saveToFirestore(sessionId, userId, extractedData, 'mobile_upload', userEmail);
+     
+const saveSuccess = await saveToFirestore(sessionId, userId, extractedData, 'mobile_upload', userEmail, 'ai_extraction');
       if (saveSuccess) {
         console.log('✅ Data saved to Firestore for user:', userId);
       }
@@ -677,6 +693,145 @@ app.get('/check-ticket/:sessionId', async (req, res) => {
     res.status(500).json({ error: 'Failed to check ticket' });
   }
 });
+
+// ✅ ADD MANUAL FORM SUBMISSION ENDPOINT
+app.post('/submit-manual-form', async (req, res) => {
+  const formData = req.body;
+  
+  console.log('🔄 Processing manual form submission:', { 
+    email: formData.email,
+    fieldsReceived: Object.keys(formData).length 
+  });
+
+  try {
+    if (!formData.email) {
+      return res.status(400).json({ error: 'Email is required' });
+    }
+
+    // 1. CREATE SESSION (same as QR flow)
+    const sessionResponse = await fetch('https://ticketguysclerk.vercel.app/api/create-session', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ email: formData.email })
+    });
+
+    const sessionData = await sessionResponse.json();
+    if (!sessionData.success) {
+      throw new Error(sessionData.message || 'Failed to create session');
+    }
+
+    const { sessionId, userId } = sessionData;
+
+    // 2. PREPARE DATA (map your form fields)
+    const firestoreData = {
+  // Personal Information
+  email: formData.email,
+  first_name: formData.firstname,
+  middle_name: formData.middlename,
+  last_name: formData.lastname,
+  phone_number: formData.mobileno,
+  
+  // Address
+  residence_address: formData.residenceaddress,
+  state: formData.stateSelect,
+  city: formData.citySelect,
+  zip_code: formData.zipcodeno,
+  
+  // Driver Info
+  driving_license_no: formData.drivingllicenseno,
+  dl_class: formData.dlClass,
+  cdl: formData.cdl,
+  date_of_birth: formData.dateofbirth,
+  sex: formData.sex,
+  height: formData.height,
+  weight: formData.weight,
+  race: formData.race,
+  eye_color: formData.eyeColor,
+  hair_color: formData.hairColor,
+  
+  // Vehicle Info
+  license_plate: formData.licenseplate,
+  vehicle_state: formData.vistateSelect,
+  vehicle_regexp: formData.regexp, // ✅ ADDED MISSING FIELD
+  vehicle_color: formData.colorvehicle,
+  vehicle_make: formData.make,
+  vehicle_model: formData.model,
+  vehicle_type: formData.type,
+  vehicle_year: formData.carYear,
+  vin: formData.vin,
+  
+  // Citation Info
+  citation_number: formData.citationnumber,
+  issuing_authority: formData.issuingauthority,
+  issue_date_time: formData.issuedatetime,
+  violation_date_time: formData.violationdatetime,
+  citation_type: formData.citationtype,
+  alleged_speed: formData.allegedspeed,
+  posted_speed: formData.postedspeed,
+  case_no: formData.caseno,
+  
+  // Violation Details
+  construction_zone: formData.constrzone,
+  school_zone: formData.schoolzone,
+  accident: formData.accident,
+  knew_race: formData.knewrace, // ✅ ADDED MISSING FIELD
+  search: formData.search, // ✅ ADDED MISSING FIELD
+  contraband: formData.contraband, // ✅ ADDED MISSING FIELD
+  
+  // Officer & Court
+  officer_name: formData.officername,
+  officer_id: formData.officerid,
+  court_information: formData.courtinformation,
+  court_hours: formData.courtHours,
+  
+  // Additional Vehicle Info ✅ ADDED MISSING FIELDS
+  trailer_plate: formData.trailerplate,
+  dot: formData.dot,
+  trailer_state: formData.trailerState,
+  cmv: formData.cmv,
+  hazmat: formData.hazmat,
+  towed: formData.towed,
+  financial: formData.financial,
+  
+  // Metadata
+  dataSource: 'manual_form',
+  manuallyEntered: true,
+  submissionDate: new Date()
+};
+
+    // 3. SAVE TO FIRESTORE WITH MANUAL FORM FLAG
+    const saveSuccess = await saveToFirestore(
+      sessionId, 
+      userId, 
+      firestoreData, 
+      'manual_form_complete', 
+      formData.email,
+      'manual_form' // ✅ THIS TELLS THE FUNCTION IT'S MANUAL
+    );
+
+    if (!saveSuccess) {
+      throw new Error('Failed to save manual form data');
+    }
+
+    // 4. SUCCESS RESPONSE
+    res.json({
+      success: true,
+      sessionId: sessionId,
+      userId: userId,
+      message: 'Manual form submitted successfully',
+      status: 'completed'
+    });
+
+  } catch (error) {
+    console.error('❌ Manual form submission error:', error);
+    res.status(500).json({ 
+      success: false,
+      error: 'Failed to submit manual form',
+      details: error.message 
+    });
+  }
+});
+
 
 // Error handling middleware
 app.use((error, req, res, next) => {
