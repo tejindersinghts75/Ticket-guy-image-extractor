@@ -815,16 +815,15 @@ app.post('/submit-manual-form', async (req, res) => {
 
               // ADD THIS LINE BEFORE SAVING TO FIRESTORE
 const cleanedFirestoreData = removeUndefinedValues(firestoreData);
-    // 3. SAVE TO FIRESTORE WITH MANUAL FORM FLAG
-    const saveSuccess = await saveToFirestore(
-      sessionId, 
-      userId, 
-       cleanedFirestoreData,
-      firestoreData, 
-      'manual_form_complete', 
-      formData.email,
-      'manual_form' // ✅ THIS TELLS THE FUNCTION IT'S MANUAL
-    );
+const saveSuccess = await saveToFirestore(
+  sessionId,
+  userId,
+  cleanedFirestoreData,   // Only cleanedFirestoreData goes here!
+  'manual_form_complete',
+  formData.email,
+  'manual_form'
+);
+
 
     if (!saveSuccess) {
       throw new Error('Failed to save manual form data');
