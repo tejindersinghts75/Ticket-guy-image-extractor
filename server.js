@@ -882,6 +882,107 @@ const saveSuccess = await saveToFirestore(
   }
 });
 
+      // ✅ NO TICKET - MANUAL INFORMATION FORM
+      app.post('/submit-no-ticket-form', async (req, res) => {
+        const formData = req.body;
+        
+        console.log('🔄 Processing no-ticket form submission:', { 
+          email: formData.email,
+          fieldsReceived: Object.keys(formData).length 
+        });
+
+        try {
+          // ✅ VALIDATE REQUIRED FIELDS
+          const requiredFields = ['email', 'first_name', 'last_name', 'infraction_violation', 'phone_number', 'county', 'is_jp'];
+          const missingFields = requiredFields.filter(field => !formData[field] || formData[field].toString().trim() === '');
+          
+          if (missingFields.length > 0) {
+            return res.status(400).json({ 
+              error: 'Missing required fields',
+              missingFields: missingFields 
+            });
+          }
+
+          // ✅ VALIDATE JP PRECINCT
+          if (formData.is_jp === 'Y' && (!formData.precinct_number || formData.precinct_number.trim() === '')) {
+            return res.status(400).json({ 
+              error: 'Precinct number required for JP cases',
+              missingFields: ['precinct_number'] 
+            });
+          }
+
+          // 1. CREATE SESSION (same as other flows)
+          const sessionResponse = await fetch('https://ticketguysclerk.vercel.app/api/create-session', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ email: formData.email })
+          });
+
+          const sessionData = await sessionResponse.json();
+          if (!sessionData.success) {
+            throw new Error(sessionData.message || 'Failed to create session');
+          }
+
+          const { sessionId, userId } = sessionData;
+
+          // 2. PREPARE DATA FOR FIRESTORE
+          const firestoreData = {
+            // Personal Information (REQUIRED)
+            email: formData.email,
+            first_name: formData.first_name,
+            middle_name: formData.middle_name || '',
+            last_name: formData.last_name,
+            phone_number: formData.phone_number,
+            county: formData.county,
+            is_jp: formData.is_jp,
+            
+            // Violation Information (REQUIRED)
+            infraction_violation: formData.infraction_violation,
+            
+            // Conditional JP Precinct
+            ...(formData.is_jp === 'Y' && { precinct_number: formData.precinct_number }),
+            
+            // Metadata
+            dataSource: 'no_ticket_form',
+            manuallyEntered: true,
+            hasPhysicalTicket: false,
+            submissionDate: new Date()
+          };
+
+          // 3. SAVE TO FIRESTORE
+          const cleanedData = removeUndefinedValues(firestoreData);
+          const saveSuccess = await saveToFirestore(
+            sessionId,
+            userId,
+            cleanedData,
+            'no_ticket_form',
+            formData.email,
+            'no_ticket_form'
+          );
+
+          if (!saveSuccess) {
+            throw new Error('Failed to save no-ticket form data');
+          }
+
+          // 4. SUCCESS RESPONSE
+          res.json({
+            success: true,
+            sessionId: sessionId,
+            userId: userId,
+            message: 'Information submitted successfully',
+            status: 'completed',
+            caseStatus: 'approval_pending'
+          });
+
+        } catch (error) {
+          console.error('❌ No-ticket form submission error:', error);
+          res.status(500).json({ 
+            success: false,
+            error: 'Failed to submit information',
+            details: error.message 
+          });
+        }
+      });
 
 // Error handling middleware
 app.use((error, req, res, next) => {
