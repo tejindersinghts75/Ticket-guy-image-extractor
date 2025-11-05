@@ -813,10 +813,13 @@ app.post('/submit-manual-form', async (req, res) => {
                 submissionDate: new Date()
               };
 
+              // ADD THIS LINE BEFORE SAVING TO FIRESTORE
+const cleanedFirestoreData = removeUndefinedValues(firestoreData);
     // 3. SAVE TO FIRESTORE WITH MANUAL FORM FLAG
     const saveSuccess = await saveToFirestore(
       sessionId, 
       userId, 
+       cleanedFirestoreData,
       firestoreData, 
       'manual_form_complete', 
       formData.email,
