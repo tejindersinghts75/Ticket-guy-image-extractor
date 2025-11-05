@@ -190,6 +190,19 @@ function getImageInfo(filePath, originalname) {
               return missingFields;
             }
             // ✅ ✅ ✅ END OF NEW FUNCTION ✅ ✅ ✅
+             // ✅ ✅ ✅ ADD THIS NEW FUNCTION RIGHT HERE ✅ ✅ ✅
+            function removeUndefinedValues(obj) {
+              if (typeof obj !== 'object' || obj === null) return obj;
+              
+              const cleaned = {};
+              for (const [key, value] of Object.entries(obj)) {
+                if (value !== undefined) {
+                  cleaned[key] = typeof value === 'object' ? removeUndefinedValues(value) : value;
+                }
+              }
+              return cleaned;
+            }
+            // ✅ ✅ ✅ END OF NEW FUNCTION ✅ ✅ ✅
 
                 // ✅ ENHANCED: Function to save extracted data to Firestore WITH DASHBOARD FIELDS
                 async function saveToFirestore(sessionId, userId, extractedData, filename, email, dataSource = 'ai_extraction') {
@@ -724,81 +737,81 @@ app.post('/submit-manual-form', async (req, res) => {
 
     // 2. PREPARE DATA (map your form fields)
    // ✅ CORRECTED FIELD MAPPING
-const firestoreData = {
-  // Personal Information
-  email: formData.email,
-  first_name: formData.firstname,
-  middle_name: formData.middlename,
-  last_name: formData.lastname,
-  phone_number: formData.mobileno,
-  
-  // Address - USE CORRECT FIELD NAMES
-  residence_address: formData.residenceaddress,
-  state: formData.state, // ✅ Was stateSelect (undefined)
-  city: formData.city,   // ✅ Was citySelect (undefined)
-  zip_code: formData.zipcodeno,
-  
-  // Driver Info
-  driving_license_no: formData.drivingllicenseno,
-  dl_class: formData.dlClass,
-  cdl: formData.cdl,
-  date_of_birth: formData.dob, // ✅ Was dateofbirth
-  sex: formData.sex,
-  height: formData.height,
-  weight: formData.weight,
-  race: formData.race,
-  eye_color: formData.eyeColor,
-  hair_color: formData.hairColor,
-  
-  // Vehicle Info
-  license_plate: formData.licenseplate,
-  vehicle_state: formData.state, // ✅ Use state instead of vistateSelect
-  vehicle_regexp: formData.regexp,
-  vehicle_color: formData.colorvehicle,
-  vehicle_make: formData.make,
-  vehicle_model: formData.model,
-  vehicle_type: formData.type,
-  vehicle_year: formData.carYear,
-  vin: formData.vin,
-  
-  // Citation Info
-  citation_number: formData.citationnumber,
-  issuing_authority: formData.issuingauthority,
-  issue_date_time: formData['issue-datetime'], // ✅ Keep as-is
-  violation_date_time: formData.violationdatetime,
-  citation_type: formData.citation,
-  alleged_speed: formData.allegedspeed,
-  posted_speed: formData.postedspeed,
-  case_no: formData.caseno,
-  
-  // Violation Details
-  construction_zone: formData.constrzone,
-  school_zone: formData.schoolzone,
-  accident: formData.accident,
-  knew_race: formData.knewrace,
-  search: formData.search,
-  contraband: formData.contraband,
-  
-  // Officer & Court
-  officer_name: formData.officername,
-  officer_id: formData.officerid,
-  court_information: formData.courtinformation,
-  court_hours: formData.courtHours,
-  
-  // Additional Vehicle Info
-  trailer_plate: formData.trailerplate,
-  dot: formData.dot,
-  trailer_state: formData.trailerState,
-  cmv: formData.cmv,
-  hazmat: formData.hazmat,
-  towed: formData.towed,
-  financial: formData.financial,
-  
-  // Metadata
-  dataSource: 'manual_form',
-  manuallyEntered: true,
-  submissionDate: new Date()
-};
+              const firestoreData = {
+                // Personal Information
+                email: formData.email,
+                first_name: formData.firstname,
+                middle_name: formData.middlename,
+                last_name: formData.lastname,
+                phone_number: formData.mobileno,
+                
+                // Address
+                residence_address: formData.residenceaddress,
+                state: formData.state,
+                city: formData.city,
+                zip_code: formData.zipcodeno,
+                
+                // Driver Info
+                driving_license_no: formData.drivingllicenseno,
+                dl_class: formData.dlClass,
+                cdl: formData.cdl,
+                date_of_birth: formData.dob,
+                sex: formData.sex,
+                height: formData.height,
+                weight: formData.weight,
+                race: formData.race,
+                eye_color: formData.eyeColor,
+                hair_color: formData.hairColor,
+                
+                // Vehicle Info
+                license_plate: formData.licenseplate,
+                vehicle_state: formData.state, // Using same as state
+                vehicle_regexp: formData.regexp,
+                vehicle_color: formData.colorvehicle,
+                vehicle_make: formData.make,
+                vehicle_model: formData.model,
+                vehicle_type: formData.type,
+                vehicle_year: formData.carYear,
+                vin: formData.vin,
+                
+                // Citation Info
+                citation_number: formData.citationnumber,
+                issuing_authority: formData.issuingauthority,
+                issue_date_time: formData['issue-datetime'],
+
+                citation_type: formData.citation,
+                alleged_speed: formData.allegedspeed,
+                posted_speed: formData.postedspeed,
+                case_no: formData.caseno,
+                
+                // Violation Details
+                construction_zone: formData.constrzone,
+                school_zone: formData.schoolzone,
+                accident: formData.accident,
+                knew_race: formData.knewrace,
+                search: formData.search,
+                contraband: formData.contraband,
+                
+                // Officer & Court
+                officer_name: formData.officername,
+                officer_id: formData.officerid,
+                court_information: formData.courtinformation,
+                court_hours: formData.courtHours,
+                
+                // Additional Vehicle Info
+                trailer_plate: formData.trailerplate,
+                dot: formData.dot,
+                trailer_state: formData.trailerState,
+                cmv: formData.cmv,
+                hazmat: formData.hazmat,
+                towed: formData.towed,
+                financial: formData.financial,
+                
+                // Metadata
+                dataSource: 'manual_form',
+                manuallyEntered: true,
+                submissionDate: new Date()
+              };
 
     // 3. SAVE TO FIRESTORE WITH MANUAL FORM FLAG
     const saveSuccess = await saveToFirestore(
