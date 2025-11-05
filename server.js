@@ -302,6 +302,18 @@ app.post('/extract-data', upload.array('images', 5), async (req, res) => {
   
   const { sessionId, userId, dataSource = 'desktop_upload' } = req.body;
   
+    // ADD THIS STATUS CHECK BEFORE PROCESSING FILES
+  if (sessionId && db) {
+    const existingTicket = await db.collection('tickets').doc(sessionId).get();
+    if (existingTicket.exists && existingTicket.data().status === 'completed') {
+      return res.status(400).json({ 
+        error: 'Ticket already completed',
+        isCompleted: true,
+        message: 'This ticket has already been processed. Please start a new session.' 
+      });
+    }
+  }
+
   console.log('🔄 Processing extraction request:', { 
     sessionId, 
     userId, 
@@ -489,6 +501,18 @@ app.post('/extract-data-from-url', async (req, res) => {
     userId, 
     imageUrl: imageUrl ? 'URL provided' : 'No URL'
   });
+  
+   // ADD THIS STATUS CHECK BEFORE PROCESSING IMAGE URL
+  if (sessionId && db) {
+    const existingTicket = await db.collection('tickets').doc(sessionId).get();
+    if (existingTicket.exists && existingTicket.data().status === 'completed') {
+      return res.status(400).json({
+        error: 'Ticket already completed',
+        isCompleted: true,
+        message: 'This ticket has already been processed. Please start a new session.'
+      });
+    }
+  }
 
   try {
     if (!imageUrl) {
@@ -644,7 +668,17 @@ app.post('/update-ticket', async (req, res) => {
     if (!sessionId || !missingFieldsData) {
       return res.status(400).json({ error: 'Missing sessionId or missingFieldsData' });
     }
-
+// ✅ ADD THIS STATUS CHECK (MISSING IN YOUR CODE)
+    if (sessionId && db) {
+      const existingTicket = await db.collection('tickets').doc(sessionId).get();
+      if (existingTicket.exists && existingTicket.data().status === 'completed') {
+        return res.status(400).json({ 
+          error: 'Ticket already completed',
+          isCompleted: true,
+          message: 'This ticket has already been processed. Please start a new session.' 
+        });
+      }
+    }
     // ✅ Update Firestore with Admin SDK (bypasses security rules)
     const ticketRef = db.collection('tickets').doc(sessionId);
     
