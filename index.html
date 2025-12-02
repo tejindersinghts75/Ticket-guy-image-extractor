@@ -22,7 +22,7 @@ document.getElementById('imageFiles').addEventListener('change', async (e) => {
     formData.append('images', file);
   }
   try {
-    const response = await fetch('https://ticket-guy-image-extractor.onrender.com/extract-data', {
+    const response = await fetch('https://ticket-guy-image-extractor-6apz.onrender.com/extract-data', {
       method: 'POST',
       body: formData,
     });
