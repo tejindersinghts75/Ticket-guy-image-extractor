@@ -8,7 +8,7 @@ const { initializeApp, cert } = require('firebase-admin/app');
 const { getFirestore } = require('firebase-admin/firestore');
 
 // ✅ SIMPLE MODE SWITCH - Change this value
-const MODE = 'test'; // Change to 'prod' for real AI extraction
+const MODE = 'prod'; // Change to 'prod' for real AI extraction
 
 // ✅ MOCK DATA EXTRACTION FUNCTION
 function mockDataExtraction() {
