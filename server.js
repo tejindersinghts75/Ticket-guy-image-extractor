@@ -11,32 +11,35 @@ const { getFirestore } = require('firebase-admin/firestore');
 const MODE = 'prod'; // Change to 'prod' for real AI extraction
 
 // ✅ MOCK DATA EXTRACTION FUNCTION
+// ✅ MOCK DATA EXTRACTION FUNCTION
 function mockDataExtraction() {
   console.log('🔄 Using MOCK DATA for extraction');
 
   return {
-    citation_number: "MOCK" + Math.random().toString().slice(2, 8),
-    issue_date: new Date().toLocaleDateString('en-US'),
-
-    // ✅ SOME FIELDS PRESENT (for testing)
+    // Citation object (as per new structure)
+    citation: {
+      citation_number: "MOCK" + Math.random().toString().slice(2, 8),
+      issue_date: new Date().toLocaleDateString('en-US'),
+      issue_time: "10:30 AM",
+      violation_date: new Date().toLocaleDateString('en-US'),
+      violation_time: "10:30 AM",
+      county: "Bexar"
+    },
+    
+    // Personal info
     first_name: "JOHN",
+    middle_name: "", // Missing - will trigger form
     last_name: "DOE",
-
-    // ❌ MISSING FIELDS (for testing smart form)
-    // middle_name: "", // Missing - will trigger form
-    // phone_number: "", // Missing - will trigger form
-    // county: "", // Missing - will trigger form
-    // is_jp: "", // Missing - will trigger form
-
-    violation: {
-      citation: "Speeding in School Zone", // ✅ Has violation
-      alleged_speed: "44",
-      posted_speed: "30",
-      school_zone: "Yes"
-    },
-    location_information: {
-      location: "1400 E BORGFELD DR"
-    },
+    email: "",
+    phone_number: "", // Missing - will trigger form
+    county: "Bexar",
+    is_jp: "", // Missing - will trigger form
+    precinct_number: "",
+    
+    // Violation
+    infraction_violation: "Speeding in School Zone",
+    
+    // Vehicle info
     vehicle_information: {
       make: "HONDA",
       model: "CIVIC",
@@ -45,6 +48,15 @@ function mockDataExtraction() {
       license_plate: "MOCK123",
       state: "TX"
     },
+    
+    // Location info
+    location_information: {
+      location: "1400 E BORGFELD DR",
+      city: "SAN ANTONIO",
+      state: "TX"
+    },
+    
+    // Violator info
     violator_information: {
       driver_license_number: "DL123456",
       city: "SAN ANTONIO",
@@ -166,14 +178,19 @@ function checkMissingFields(extractedData, userEmail) {
 
   requiredFields.forEach(field => {
     if (field === 'email') {
-      // Use the email from Clerk auth
       if (!userEmail || userEmail.trim() === '') {
         missingFields.push('email');
       }
     }
     else if (field === 'infraction_violation') {
-      // Check violation citation
-      if (!extractedData.violation?.citation) {
+      // ✅ FIXED: Check multiple possible locations for violation text
+      const violationText = 
+        extractedData.infraction_violation || 
+        extractedData.violation?.citation ||
+        extractedData.citation?.violation ||
+        extractedData.violation_description;
+      
+      if (!violationText || violationText.toString().trim() === '') {
         missingFields.push('infraction_violation');
       }
     }
@@ -349,28 +366,76 @@ app.post('/extract-data', upload.array('images', 5), async (req, res) => {
           console.log('🔄 Using REAL OpenAI API (PROD mode)');
 
           // Prepare prompt for structured data extraction
-          const systemPrompt = `You are an expert data extraction AI. Your job is to analyze images and extract structured data from them.
 
-          Please extract all readable text and data from the image and format it as a JSON object with consistent field names. 
+          const systemPrompt = `You are an expert at extracting data from traffic citations. 
+Extract ALL text from the image and organize it into this EXACT JSON structure:
 
-          For documents like forms, tickets, receipts, or any structured document, please organize the data logically with clear field names.
+{
+  "citation": {
+    "citation_number": "",
+    "issue_date": "",
+    "issue_time": "",
+    "violation_date": "",
+    "violation_time": "",
+    "county": ""
+  },
+  "first_name": "",
+  "middle_name": "",
+  "last_name": "",
+  "email": "",
+  "phone_number": "",
+  "infraction_violation": "",
+  "county": "",
+  "is_jp": "",
+  "precinct_number": "",
+  "vehicle_information": {
+    "make": "",
+    "model": "",
+    "year": "",
+    "color": "",
+    "license_plate": "",
+    "state": ""
+  },
+  "location_information": {
+    "location": "",
+    "city": "",
+    "state": ""
+  },
+  "violator_information": {
+    "driver_license_number": "",
+    "city": "",
+    "state": ""
+  }
+}
 
-          Common fields to look for and standardize:
-          - Names: firstname, middlename, lastname, fullname
-          - Dates: date, issuedate, duedate, birthdate
-          - Addresses: address, street, city, state, zipcode
-          - IDs: id, ticketno, licenseno, caseno
-          - Amounts: amount, fine, fee, total
-          - Vehicle info: make, model, year, color, plate, vin
-          - Locations: location, intersection, zone
-          - Times: time, datetime
-          - Other relevant fields based on document type
+CRITICAL RULES:
+1. Use EXACTLY this field structure - citation object must be named "citation" (not "citation_info" or anything else)
+2. Put citation details inside "citation" object
+3. Put vehicle details inside "vehicle_information" object  
+4. Put location details inside "location_information" object
+5. If field not found, use empty string ""
+6. Return ONLY valid JSON, no explanations`;
 
-          Always return valid JSON with meaningful field names. If a field is not present, omit it from the JSON rather than including null values.
+          // Replace the current userPrompt with this:
+          const userPrompt = `Extract ALL text from this traffic citation image and map it to the exact JSON structure above.
 
-          Also provide a brief analysis of what type of document this appears to be and what information was extracted.`;
+MAP THESE SPECIFIC FIELDS:
+- Citation/Ticket number → "citation.citation_number"
+- Issue date → "citation.issue_date"
+- Issue time → "citation.issue_time"
+- Violation date → "citation.violation_date"
+- Violation time → "citation.violation_time"
+- County → "citation.county" AND "county" (both places)
+- First name → "first_name" (top level)
+- Middle name → "middle_name" (top level)
+- Last name → "last_name" (top level)
+- Violation description → "infraction_violation" (top level)
+- Vehicle make → "vehicle_information.make"
+- Vehicle model → "vehicle_information.model"
+- License plate → "vehicle_information.license_plate"
+- Location → "location_information.location"
 
-          const userPrompt = `Please analyze this image and extract all structured data from it. Return the data in a clean JSON format with consistent field names, and provide a brief analysis of the document type.`;
+Return ONLY the JSON object with this exact structure.`;
 
           const response = await openai.chat.completions.create({
             model: "gpt-4o-mini",
@@ -541,28 +606,76 @@ app.post('/extract-data-from-url', async (req, res) => {
       // USE REAL OPENAI API
       console.log('🔄 Using REAL OpenAI API for URL extraction (PROD mode)');
 
-      const systemPrompt = `You are an expert data extraction AI. Your job is to analyze images and extract structured data from them.
+      // Replace the current systemPrompt with this:
+const systemPrompt = `You are an expert at extracting data from traffic citations. 
+Extract ALL text from the image and organize it into this EXACT JSON structure:
 
-      Please extract all readable text and data from the image and format it as a JSON object with consistent field names. 
+{
+  "citation": {
+    "citation_number": "",
+    "issue_date": "",
+    "issue_time": "",
+    "violation_date": "",
+    "violation_time": "",
+    "county": ""
+  },
+  "first_name": "",
+  "middle_name": "",
+  "last_name": "",
+  "email": "",
+  "phone_number": "",
+  "infraction_violation": "",
+  "county": "",
+  "is_jp": "",
+  "precinct_number": "",
+  "vehicle_information": {
+    "make": "",
+    "model": "",
+    "year": "",
+    "color": "",
+    "license_plate": "",
+    "state": ""
+  },
+  "location_information": {
+    "location": "",
+    "city": "",
+    "state": ""
+  },
+  "violator_information": {
+    "driver_license_number": "",
+    "city": "",
+    "state": ""
+  }
+}
 
-      For documents like forms, tickets, receipts, or any structured document, please organize the data logically with clear field names.
+CRITICAL RULES:
+1. Use EXACTLY this field structure - citation object must be named "citation" (not "citation_info" or anything else)
+2. Put citation details inside "citation" object
+3. Put vehicle details inside "vehicle_information" object  
+4. Put location details inside "location_information" object
+5. If field not found, use empty string ""
+6. Return ONLY valid JSON, no explanations`;
 
-      Common fields to look for and standardize:
-      - Names: firstname, middlename, lastname, fullname
-      - Dates: date, issuedate, duedate, birthdate
-      - Addresses: address, street, city, state, zipcode
-      - IDs: id, ticketno, licenseno, caseno
-      - Amounts: amount, fine, fee, total
-      - Vehicle info: make, model, year, color, plate, vin
-      - Locations: location, intersection, zone
-      - Times: time, datetime
-      - Other relevant fields based on document type
+// Replace the current userPrompt with this:
+const userPrompt = `Extract ALL text from this traffic citation image and map it to the exact JSON structure above.
 
-      Always return valid JSON with meaningful field names. If a field is not present, omit it from the JSON rather than including null values.
+MAP THESE SPECIFIC FIELDS:
+- Citation/Ticket number → "citation.citation_number"
+- Issue date → "citation.issue_date"
+- Issue time → "citation.issue_time"
+- Violation date → "citation.violation_date"
+- Violation time → "citation.violation_time"
+- County → "citation.county" AND "county" (both places)
+- First name → "first_name" (top level)
+- Middle name → "middle_name" (top level)
+- Last name → "last_name" (top level)
+- Violation description → "infraction_violation" (top level)
+- Vehicle make → "vehicle_information.make"
+- Vehicle model → "vehicle_information.model"
+- License plate → "vehicle_information.license_plate"
+- Location → "location_information.location"
 
-      Also provide a brief analysis of what type of document this appears to be and what information was extracted.`;
-
-      const userPrompt = `Please analyze this image and extract all structured data from it. Return the data in a clean JSON format with consistent field names, and provide a brief analysis of the document type.`;
+Return ONLY the JSON object with this exact structure.`;
 
       const response = await openai.chat.completions.create({
         model: "gpt-4o-mini",
@@ -726,7 +839,7 @@ app.get('/check-ticket/:sessionId', async (req, res) => {
     const extractedData = ticketData.extractedData || {};
 
     // Check missing fields (same logic as before)
-    const missingFields = checkMissingFields(extractedData);
+    const missingFields = checkMissingFields(extractedData, ticketData.email || '');
 
     res.json({
       exists: true,

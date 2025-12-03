@@ -6,6 +6,53 @@ const fs = require('fs');
 const path = require('path');
 const { initializeApp, cert } = require('firebase-admin/app');
 const { getFirestore } = require('firebase-admin/firestore');
+
+// ✅ SIMPLE MODE SWITCH - Change this value
+const MODE = 'prod'; // Change to 'prod' for real AI extraction
+
+// ✅ MOCK DATA EXTRACTION FUNCTION
+function mockDataExtraction() {
+  console.log('🔄 Using MOCK DATA for extraction');
+
+  return {
+    citation_number: "MOCK" + Math.random().toString().slice(2, 8),
+    issue_date: new Date().toLocaleDateString('en-US'),
+
+    // ✅ SOME FIELDS PRESENT (for testing)
+    first_name: "JOHN",
+    last_name: "DOE",
+
+    // ❌ MISSING FIELDS (for testing smart form)
+    // middle_name: "", // Missing - will trigger form
+    // phone_number: "", // Missing - will trigger form
+    // county: "", // Missing - will trigger form
+    // is_jp: "", // Missing - will trigger form
+
+    violation: {
+      citation: "Speeding in School Zone", // ✅ Has violation
+      alleged_speed: "44",
+      posted_speed: "30",
+      school_zone: "Yes"
+    },
+    location_information: {
+      location: "1400 E BORGFELD DR"
+    },
+    vehicle_information: {
+      make: "HONDA",
+      model: "CIVIC",
+      year: "2022",
+      color: "BLUE",
+      license_plate: "MOCK123",
+      state: "TX"
+    },
+    violator_information: {
+      driver_license_number: "DL123456",
+      city: "SAN ANTONIO",
+      state: "TX"
+    }
+  };
+}
+
 // ✅ FIX: Remove dotenv or make it optional
 try {
   require('dotenv').config();
@@ -24,6 +71,8 @@ console.log('OPENAI_API_KEY exists:', !!process.env.OPENAI_API_KEY);
 console.log('FIREBASE_PROJECT_ID exists:', !!process.env.FIREBASE_PROJECT_ID);
 console.log('FIREBASE_CLIENT_EMAIL exists:', !!process.env.FIREBASE_CLIENT_EMAIL);
 console.log('FIREBASE_PRIVATE_KEY exists:', !!process.env.FIREBASE_PRIVATE_KEY);
+console.log('🔄 CURRENT MODE:', MODE);
+
 // ✅ ADD FIREBASE ADMIN INITIALIZATION
 let db;
 try {
@@ -64,7 +113,7 @@ const storage = multer.diskStorage({
   }
 });
 
-const upload = multer({ 
+const upload = multer({
   storage: storage,
   limits: {
     fileSize: 10 * 1024 * 1024 // 10MB limit per file
@@ -100,8 +149,63 @@ function getImageInfo(filePath, originalname) {
   };
 }
 
+// ✅ ✅ ✅ ADD THIS NEW FUNCTION RIGHT HERE ✅ ✅ ✅
+function checkMissingFields(extractedData, userEmail) {
+  const requiredFields = [
+    'email',
+    'first_name',
+    'middle_name',
+    'last_name',
+    'infraction_violation',
+    'phone_number',
+    'county',
+    'is_jp'
+  ];
+
+  const missingFields = [];
+
+  requiredFields.forEach(field => {
+    if (field === 'email') {
+      // Use the email from Clerk auth
+      if (!userEmail || userEmail.trim() === '') {
+        missingFields.push('email');
+      }
+    }
+    else if (field === 'infraction_violation') {
+      // Check violation citation
+      if (!extractedData.violation?.citation) {
+        missingFields.push('infraction_violation');
+      }
+    }
+    else if (!extractedData[field] || extractedData[field].toString().trim() === '') {
+      missingFields.push(field);
+    }
+  });
+
+  // Special check: If JP=Y, precinct is required
+  if (extractedData.is_jp === 'Y' && (!extractedData.precinct_number || extractedData.precinct_number.trim() === '')) {
+    missingFields.push('precinct_number');
+  }
+
+  return missingFields;
+}
+// ✅ ✅ ✅ END OF NEW FUNCTION ✅ ✅ ✅
+// ✅ ✅ ✅ ADD THIS NEW FUNCTION RIGHT HERE ✅ ✅ ✅
+function removeUndefinedValues(obj) {
+  if (typeof obj !== 'object' || obj === null) return obj;
+
+  const cleaned = {};
+  for (const [key, value] of Object.entries(obj)) {
+    if (value !== undefined) {
+      cleaned[key] = typeof value === 'object' ? removeUndefinedValues(value) : value;
+    }
+  }
+  return cleaned;
+}
+// ✅ ✅ ✅ END OF NEW FUNCTION ✅ ✅ ✅
+
 // ✅ ENHANCED: Function to save extracted data to Firestore WITH DASHBOARD FIELDS
-async function saveToFirestore(sessionId, userId, extractedData, filename, email) {
+async function saveToFirestore(sessionId, userId, extractedData, filename, email, dataSource = 'ai_extraction') {
   if (!db) {
     console.log('⚠️ Firestore not available - skipping database save');
     return false;
@@ -118,34 +222,46 @@ async function saveToFirestore(sessionId, userId, extractedData, filename, email
       case_requires_attention: "Your case requires additional attention. Our team will contact you shortly with more information."
     };
 
+    // ✅ DIFFERENT STATUS BASED ON DATA SOURCE
+    let status, statusNote;
+
+    if (dataSource === 'manual_form') {
+      status = 'completed';
+      statusNote = 'Manual form submitted with complete information';
+    } else {
+      status = 'extracted';
+      statusNote = 'Ticket uploaded and AI extraction completed';
+    }
+
     // ✅ CREATE/UPDATE TICKET WITH DASHBOARD FIELDS
     await db.collection('tickets').doc(sessionId).set({
       // Your existing fields:
-      status: 'extracted',
+      status: status, // ✅ Now dynamic
       processingStatus: 'completed',
       extractedData: extractedData,
       extractedAt: new Date(),
       userId: userId,
-      email: email, // Make sure email is included
+      email: email,
       fileName: filename,
       sessionId: sessionId,
       createdAt: new Date(),
-      
+      dataSource: dataSource, // ✅ Track the source
+
       // ✅ NEW DASHBOARD FIELDS:
       caseStatus: 'approval_pending', // Default starting status
       statusHistory: [{
         status: 'approval_pending',
         timestamp: new Date(),
         updatedBy: 'system',
-        notes: 'Ticket uploaded and AI extraction completed'
+        notes: statusNote // ✅ Correct note for each type
       }],
       clientMessages: statusMessages,
       requiredDocuments: [], // For upload functionality
       lastUpdated: new Date()
     }, { merge: true });
-    
+
     console.log('✅ Ticket with dashboard fields saved to Firestore:', sessionId);
-    
+
     // ✅ AUDIT LOG
     await db.collection('audit-logs').add({
       action: 'ticket_created_with_dashboard',
@@ -153,22 +269,24 @@ async function saveToFirestore(sessionId, userId, extractedData, filename, email
       sessionId: sessionId,
       userId: userId,
       email: email,
+      dataSource: dataSource, // ✅ Include data source
       status: 'success'
     });
-    
+
     return true;
   } catch (error) {
     console.error('❌ Error saving to Firestore:', error);
-    
+
     // Error audit log
     await db.collection('audit-logs').add({
       action: 'ticket_creation_failed',
       timestamp: new Date(),
       sessionId: sessionId,
       error: error.message,
+      dataSource: dataSource,
       status: 'failed'
     });
-    
+
     return false;
   }
 }
@@ -181,15 +299,26 @@ app.get('/', (req, res) => {
 // MULTI-IMAGE DATA EXTRACTION ENDPOINT - UPDATED
 app.post('/extract-data', upload.array('images', 5), async (req, res) => {
   const startTime = Date.now();
-  
-  // ✅ GET SESSION DATA FROM REQUEST BODY
+
   const { sessionId, userId, dataSource = 'desktop_upload' } = req.body;
-  
-  console.log('🔄 Processing extraction request:', { 
-    sessionId, 
-    userId, 
+
+  // ADD THIS STATUS CHECK BEFORE PROCESSING FILES
+  if (sessionId && db) {
+    const existingTicket = await db.collection('tickets').doc(sessionId).get();
+    if (existingTicket.exists && existingTicket.data().status === 'completed') {
+      return res.status(400).json({
+        error: 'Ticket already completed',
+        isCompleted: true,
+        message: 'This ticket has already been processed. Please start a new session.'
+      });
+    }
+  }
+
+  console.log('🔄 Processing extraction request:', {
+    sessionId,
+    userId,
     files: req.files?.length || 0,
-    dataSource 
+    dataSource
   });
 
   try {
@@ -199,112 +328,130 @@ app.post('/extract-data', upload.array('images', 5), async (req, res) => {
 
     // Array to hold results for each image
     const results = [];
+    let firstExtractedData = null; // ✅ ADD THIS
 
     for (const file of req.files) {
       let extractedData = {};
       let analysis = "";
       let imageInfo = getImageInfo(file.path, file.originalname);
-      
+
       try {
         const imageBase64 = encodeImageToBase64(file.path);
 
-        // Prepare prompt for structured data extraction
-        const systemPrompt = `You are an expert data extraction AI. Your job is to analyze images and extract structured data from them.
+        // ✅ SIMPLE SWITCH: TEST vs PROD
+        if (MODE === 'test') {
+          // USE MOCK DATA
+          console.log('🔄 Using MOCK DATA for extraction (TEST mode)');
+          extractedData = mockDataExtraction();
+          analysis = "Mock data generated for testing - MODE: test";
+        } else {
+          // USE REAL OPENAI API
+          console.log('🔄 Using REAL OpenAI API (PROD mode)');
 
-        Please extract all readable text and data from the image and format it as a JSON object with consistent field names. 
+          // Prepare prompt for structured data extraction
+          const systemPrompt = `You are an expert data extraction AI. Your job is to analyze images and extract structured data from them.
 
-        For documents like forms, tickets, receipts, or any structured document, please organize the data logically with clear field names.
+          Please extract all readable text and data from the image and format it as a JSON object with consistent field names. 
 
-        Common fields to look for and standardize:
-        - Names: firstname, middlename, lastname, fullname
-        - Dates: date, issuedate, duedate, birthdate
-        - Addresses: address, street, city, state, zipcode
-        - IDs: id, ticketno, licenseno, caseno
-        - Amounts: amount, fine, fee, total
-        - Vehicle info: make, model, year, color, plate, vin
-        - Locations: location, intersection, zone
-        - Times: time, datetime
-        - Other relevant fields based on document type
+          For documents like forms, tickets, receipts, or any structured document, please organize the data logically with clear field names.
 
-        Always return valid JSON with meaningful field names. If a field is not present, omit it from the JSON rather than including null values.
+          Common fields to look for and standardize:
+          - Names: firstname, middlename, lastname, fullname
+          - Dates: date, issuedate, duedate, birthdate
+          - Addresses: address, street, city, state, zipcode
+          - IDs: id, ticketno, licenseno, caseno
+          - Amounts: amount, fine, fee, total
+          - Vehicle info: make, model, year, color, plate, vin
+          - Locations: location, intersection, zone
+          - Times: time, datetime
+          - Other relevant fields based on document type
 
-        Also provide a brief analysis of what type of document this appears to be and what information was extracted.`;
+          Always return valid JSON with meaningful field names. If a field is not present, omit it from the JSON rather than including null values.
 
-        const userPrompt = `Please analyze this image and extract all structured data from it. Return the data in a clean JSON format with consistent field names, and provide a brief analysis of the document type.`;
+          Also provide a brief analysis of what type of document this appears to be and what information was extracted.`;
 
-        // Make API call to OpenAI
-        const response = await openai.chat.completions.create({
-          model: "gpt-4o-mini",
-          messages: [
-            {
-              role: "system",
-              content: systemPrompt
-            },
-            {
-              role: "user",
-              content: [
-                {
-                  type: "text",
-                  text: userPrompt
-                },
-                {
-                  type: "image_url",
-                  image_url: {
-                    url: `data:image/jpeg;base64,${imageBase64}`,
-                    detail: "high"
+          const userPrompt = `Please analyze this image and extract all structured data from it. Return the data in a clean JSON format with consistent field names, and provide a brief analysis of the document type.`;
+
+          const response = await openai.chat.completions.create({
+            model: "gpt-4o-mini",
+            messages: [
+              {
+                role: "system",
+                content: systemPrompt
+              },
+              {
+                role: "user",
+                content: [
+                  {
+                    type: "text",
+                    text: userPrompt
+                  },
+                  {
+                    type: "image_url",
+                    image_url: {
+                      url: `data:image/jpeg;base64,${imageBase64}`,
+                      detail: "high"
+                    }
                   }
-                }
-              ]
+                ]
+              }
+            ],
+            max_tokens: 1500,
+            temperature: 0.1
+          });
+
+          const aiResponse = response.choices[0].message.content;
+
+          // Try to parse JSON from the response
+          try {
+            // Look for JSON in the response
+            const jsonMatch = aiResponse.match(/```json\n([\s\S]*?)\n```/) ||
+              aiResponse.match(/```([\s\S]*?)```/) ||
+              aiResponse.match(/\{[\s\S]*\}/);
+
+            if (jsonMatch) {
+              const jsonString = jsonMatch[1] || jsonMatch[0];
+              extractedData = JSON.parse(jsonString);
+              analysis = aiResponse.replace(jsonMatch[0], '').trim();
+              if (!analysis) analysis = "Data successfully extracted from the image.";
+            } else {
+              try {
+                extractedData = JSON.parse(aiResponse);
+                analysis = "Data successfully extracted and parsed.";
+              } catch (e) {
+                extractedData = { rawText: aiResponse };
+                analysis = "Could not parse structured data, raw text provided.";
+              }
             }
-          ],
-          max_tokens: 1500,
-          temperature: 0.1
-        });
-
-        const aiResponse = response.choices[0].message.content;
-
-        // Try to parse JSON from the response
-        try {
-          // Look for JSON in the response
-          const jsonMatch = aiResponse.match(/```json\n([\s\S]*?)\n```/) || 
-                          aiResponse.match(/```([\s\S]*?)```/) ||
-                          aiResponse.match(/\{[\s\S]*\}/);
-
-          if (jsonMatch) {
-            const jsonString = jsonMatch[1] || jsonMatch[0];
-            extractedData = JSON.parse(jsonString);
-            analysis = aiResponse.replace(jsonMatch[0], '').trim();
-            if (!analysis) analysis = "Data successfully extracted from the image.";
-          } else {
-            try {
-              extractedData = JSON.parse(aiResponse);
-              analysis = "Data successfully extracted and parsed.";
-            } catch (e) {
-              extractedData = { rawText: aiResponse };
-              analysis = "Could not parse structured data, raw text provided.";
-            }
+          } catch (parseError) {
+            extractedData = { error: "Could not parse structured data", rawResponse: aiResponse };
+            analysis = "The AI provided a response but it could not be parsed as structured JSON.";
           }
-        } catch (parseError) {
-          extractedData = { error: "Could not parse structured data", rawResponse: aiResponse };
-          analysis = "The AI provided a response but it could not be parsed as structured JSON.";
         }
 
-        // ✅ NEW: SAVE TO FIRESTORE AFTER SUCCESSFUL EXTRACTION
+        // ✅ STORE FIRST EXTRACTED DATA FOR MISSING FIELDS CHECK
+        if (!firstExtractedData) {
+          firstExtractedData = extractedData; // ✅ Store for later use
+        }
+
+        // ✅ SAVE TO FIRESTORE AFTER SUCCESSFUL EXTRACTION
         if (sessionId && userId) {
-           const userEmail = req.body.email;
-          const saveSuccess = await saveToFirestore(sessionId, userId, extractedData, file.originalname, userEmail);
+          const userEmail = req.body.email;
+
+          const saveSuccess = await saveToFirestore(sessionId, userId, extractedData, file.originalname, userEmail, 'ai_extraction');
           if (saveSuccess) {
             console.log('✅ Data saved to Firestore for user:', userId);
           }
         }
 
       } catch (imgErr) {
+        console.error('❌ Extraction error:', imgErr);
         extractedData = { error: "Image extraction failed", details: imgErr.message };
         analysis = "";
       } finally {
-        try { fs.unlinkSync(file.path); } catch(e){}
+        try { fs.unlinkSync(file.path); } catch (e) { }
       }
-      
+
       results.push({
         filename: file.originalname,
         extractedData,
@@ -315,14 +462,17 @@ app.post('/extract-data', upload.array('images', 5), async (req, res) => {
     }
 
     const processingTime = Date.now() - startTime;
-    
+
+    // ✅ FIXED: Use firstExtractedData which is now defined
     res.json({
       success: true,
       processingTime,
       imagesProcessed: results.length,
       sessionId,
       userId,
-      results
+      results,
+      missingFields: checkMissingFields(firstExtractedData, req.body.email), // ✅ FIXED
+      isComplete: checkMissingFields(firstExtractedData, req.body.email).length === 0 // ✅ FIXED
     });
 
   } catch (error) {
@@ -334,7 +484,7 @@ app.post('/extract-data', upload.array('images', 5), async (req, res) => {
     // Cleanup all files
     if (req.files && Array.isArray(req.files)) {
       for (const file of req.files) {
-        try { fs.unlinkSync(file.path); } catch(e){}
+        try { fs.unlinkSync(file.path); } catch (e) { }
       }
     }
   }
@@ -343,14 +493,26 @@ app.post('/extract-data', upload.array('images', 5), async (req, res) => {
 // ✅ NEW ENDPOINT FOR MOBILE UPLOADS (IMAGE URLS)
 app.post('/extract-data-from-url', async (req, res) => {
   const startTime = Date.now();
-  
+
   const { imageUrl, sessionId, userId, dataSource = 'mobile_upload' } = req.body;
-  
-  console.log('🔄 Processing extraction from URL:', { 
-    sessionId, 
-    userId, 
+
+  console.log('🔄 Processing extraction from URL:', {
+    sessionId,
+    userId,
     imageUrl: imageUrl ? 'URL provided' : 'No URL'
   });
+
+  // ADD THIS STATUS CHECK BEFORE PROCESSING IMAGE URL
+  if (sessionId && db) {
+    const existingTicket = await db.collection('tickets').doc(sessionId).get();
+    if (existingTicket.exists && existingTicket.data().status === 'completed') {
+      return res.status(400).json({
+        error: 'Ticket already completed',
+        isCompleted: true,
+        message: 'This ticket has already been processed. Please start a new session.'
+      });
+    }
+  }
 
   try {
     if (!imageUrl) {
@@ -366,98 +528,110 @@ app.post('/extract-data-from-url', async (req, res) => {
     const imageBuffer = await imageResponse.arrayBuffer();
     const imageBase64 = Buffer.from(imageBuffer).toString('base64');
 
-    // Use your existing OpenAI extraction logic
-    const systemPrompt = `You are an expert data extraction AI. Your job is to analyze images and extract structured data from them.
-
-    Please extract all readable text and data from the image and format it as a JSON object with consistent field names. 
-
-    For documents like forms, tickets, receipts, or any structured document, please organize the data logically with clear field names.
-
-    Common fields to look for and standardize:
-    - Names: firstname, middlename, lastname, fullname
-    - Dates: date, issuedate, duedate, birthdate
-    - Addresses: address, street, city, state, zipcode
-    - IDs: id, ticketno, licenseno, caseno
-    - Amounts: amount, fine, fee, total
-    - Vehicle info: make, model, year, color, plate, vin
-    - Locations: location, intersection, zone
-    - Times: time, datetime
-    - Other relevant fields based on document type
-
-    Always return valid JSON with meaningful field names. If a field is not present, omit it from the JSON rather than including null values.
-
-    Also provide a brief analysis of what type of document this appears to be and what information was extracted.`;
-
-    const userPrompt = `Please analyze this image and extract all structured data from it. Return the data in a clean JSON format with consistent field names, and provide a brief analysis of the document type.`;
-
-    const response = await openai.chat.completions.create({
-      model: "gpt-4o-mini",
-      messages: [
-        {
-          role: "system",
-          content: systemPrompt
-        },
-        {
-          role: "user",
-          content: [
-            {
-              type: "text",
-              text: userPrompt
-            },
-            {
-              type: "image_url",
-              image_url: {
-                url: `data:image/jpeg;base64,${imageBase64}`,
-                detail: "high"
-              }
-            }
-          ]
-        }
-      ],
-      max_tokens: 1500,
-      temperature: 0.1
-    });
-
-    const aiResponse = response.choices[0].message.content;
     let extractedData = {};
     let analysis = "";
 
-    // Parse JSON from response (same as your existing code)
-    try {
-      const jsonMatch = aiResponse.match(/```json\n([\s\S]*?)\n```/) || 
-                      aiResponse.match(/```([\s\S]*?)```/) ||
-                      aiResponse.match(/\{[\s\S]*\}/);
+    // ✅ SIMPLE SWITCH: TEST vs PROD
+    if (MODE === 'test') {
+      // USE MOCK DATA
+      console.log('🔄 Using MOCK DATA for URL extraction (TEST mode)');
+      extractedData = mockDataExtraction();
+      analysis = "Mock data generated for testing - MODE: test";
+    } else {
+      // USE REAL OPENAI API
+      console.log('🔄 Using REAL OpenAI API for URL extraction (PROD mode)');
 
-      if (jsonMatch) {
-        const jsonString = jsonMatch[1] || jsonMatch[0];
-        extractedData = JSON.parse(jsonString);
-        analysis = aiResponse.replace(jsonMatch[0], '').trim();
-        if (!analysis) analysis = "Data successfully extracted from the image.";
-      } else {
-        try {
-          extractedData = JSON.parse(aiResponse);
-          analysis = "Data successfully extracted and parsed.";
-        } catch (e) {
-          extractedData = { rawText: aiResponse };
-          analysis = "Could not parse structured data, raw text provided.";
+      const systemPrompt = `You are an expert data extraction AI. Your job is to analyze images and extract structured data from them.
+
+      Please extract all readable text and data from the image and format it as a JSON object with consistent field names. 
+
+      For documents like forms, tickets, receipts, or any structured document, please organize the data logically with clear field names.
+
+      Common fields to look for and standardize:
+      - Names: firstname, middlename, lastname, fullname
+      - Dates: date, issuedate, duedate, birthdate
+      - Addresses: address, street, city, state, zipcode
+      - IDs: id, ticketno, licenseno, caseno
+      - Amounts: amount, fine, fee, total
+      - Vehicle info: make, model, year, color, plate, vin
+      - Locations: location, intersection, zone
+      - Times: time, datetime
+      - Other relevant fields based on document type
+
+      Always return valid JSON with meaningful field names. If a field is not present, omit it from the JSON rather than including null values.
+
+      Also provide a brief analysis of what type of document this appears to be and what information was extracted.`;
+
+      const userPrompt = `Please analyze this image and extract all structured data from it. Return the data in a clean JSON format with consistent field names, and provide a brief analysis of the document type.`;
+
+      const response = await openai.chat.completions.create({
+        model: "gpt-4o-mini",
+        messages: [
+          {
+            role: "system",
+            content: systemPrompt
+          },
+          {
+            role: "user",
+            content: [
+              {
+                type: "text",
+                text: userPrompt
+              },
+              {
+                type: "image_url",
+                image_url: {
+                  url: `data:image/jpeg;base64,${imageBase64}`,
+                  detail: "high"
+                }
+              }
+            ]
+          }
+        ],
+        max_tokens: 1500,
+        temperature: 0.1
+      });
+
+      const aiResponse = response.choices[0].message.content;
+
+      // Parse JSON from response (same as your existing code)
+      try {
+        const jsonMatch = aiResponse.match(/```json\n([\s\S]*?)\n```/) ||
+          aiResponse.match(/```([\s\S]*?)```/) ||
+          aiResponse.match(/\{[\s\S]*\}/);
+
+        if (jsonMatch) {
+          const jsonString = jsonMatch[1] || jsonMatch[0];
+          extractedData = JSON.parse(jsonString);
+          analysis = aiResponse.replace(jsonMatch[0], '').trim();
+          if (!analysis) analysis = "Data successfully extracted from the image.";
+        } else {
+          try {
+            extractedData = JSON.parse(aiResponse);
+            analysis = "Data successfully extracted and parsed.";
+          } catch (e) {
+            extractedData = { rawText: aiResponse };
+            analysis = "Could not parse structured data, raw text provided.";
+          }
         }
+      } catch (parseError) {
+        extractedData = { error: "Could not parse structured data", rawResponse: aiResponse };
+        analysis = "The AI provided a response but it could not be parsed as structured JSON.";
       }
-    } catch (parseError) {
-      extractedData = { error: "Could not parse structured data", rawResponse: aiResponse };
-      analysis = "The AI provided a response but it could not be parsed as structured JSON.";
     }
 
     // Save to Firestore
     if (sessionId && userId) {
       const userEmail = req.body.email;
-      const saveSuccess = await saveToFirestore(sessionId, userId, extractedData, 'mobile_upload',userEmail);
+
+      const saveSuccess = await saveToFirestore(sessionId, userId, extractedData, 'mobile_upload', userEmail, 'ai_extraction');
       if (saveSuccess) {
         console.log('✅ Data saved to Firestore for user:', userId);
       }
     }
 
     const processingTime = Date.now() - startTime;
-    
+
     res.json({
       success: true,
       processingTime,
@@ -469,13 +643,342 @@ app.post('/extract-data-from-url', async (req, res) => {
         analysis,
         imageInfo: { size: 'Unknown', type: 'from_url', dimensions: 'Unknown' },
         savedToFirestore: !!(sessionId && userId)
-      }]
+      }],
+      // ✅ ADD THESE 2 NEW FIELDS:
+      missingFields: checkMissingFields(extractedData, req.body.email),
+      isComplete: checkMissingFields(extractedData, req.body.email).length === 0
     });
 
   } catch (error) {
     console.error('Error processing image from URL:', error);
     res.status(500).json({
       error: 'Failed to process image from URL',
+      details: error.message
+    });
+  }
+});
+
+// ✅ ADD THIS NEW ENDPOINT TO YOUR BACKEND
+app.post('/update-ticket', async (req, res) => {
+  const { sessionId, missingFieldsData } = req.body;
+
+  console.log('🔄 Updating ticket with missing fields:', { sessionId, missingFieldsData });
+
+  try {
+    if (!sessionId || !missingFieldsData) {
+      return res.status(400).json({ error: 'Missing sessionId or missingFieldsData' });
+    }
+    // ✅ ADD THIS STATUS CHECK (MISSING IN YOUR CODE)
+    if (sessionId && db) {
+      const existingTicket = await db.collection('tickets').doc(sessionId).get();
+      if (existingTicket.exists && existingTicket.data().status === 'completed') {
+        return res.status(400).json({
+          error: 'Ticket already completed',
+          isCompleted: true,
+          message: 'This ticket has already been processed. Please start a new session.'
+        });
+      }
+    }
+    // ✅ Update Firestore with Admin SDK (bypasses security rules)
+    const ticketRef = db.collection('tickets').doc(sessionId);
+
+    // Prepare update data
+    const updateData = {};
+    Object.keys(missingFieldsData).forEach(field => {
+      updateData[`extractedData.${field}`] = missingFieldsData[field];
+    });
+
+    updateData.status = 'completed';
+    updateData.completedAt = new Date();
+    updateData.lastUpdated = new Date();
+
+    await ticketRef.update(updateData);
+
+    console.log('✅ Ticket updated successfully:', sessionId);
+
+    res.json({
+      success: true,
+      message: 'Ticket updated successfully',
+      sessionId: sessionId
+    });
+
+  } catch (error) {
+    console.error('❌ Error updating ticket:', error);
+    res.status(500).json({
+      error: 'Failed to update ticket',
+      details: error.message
+    });
+  }
+});
+
+// ✅ NEW SECURE ENDPOINT
+app.get('/check-ticket/:sessionId', async (req, res) => {
+  const { sessionId } = req.params;
+
+  try {
+    const ticketDoc = await db.collection('tickets').doc(sessionId).get();
+
+    if (!ticketDoc.exists) {
+      return res.json({ exists: false });
+    }
+
+    const ticketData = ticketDoc.data();
+    const extractedData = ticketData.extractedData || {};
+
+    // Check missing fields (same logic as before)
+    const missingFields = checkMissingFields(extractedData);
+
+    res.json({
+      exists: true,
+      status: ticketData.status,
+      missingFields: missingFields,
+      extractedData: extractedData,
+      isComplete: missingFields.length === 0
+    });
+
+  } catch (error) {
+    res.status(500).json({ error: 'Failed to check ticket' });
+  }
+});
+
+// ✅ ADD MANUAL FORM SUBMISSION ENDPOINT discarted
+app.post('/submit-manual-form', async (req, res) => {
+  const formData = req.body;
+
+  console.log('🔄 Processing manual form submission:', {
+    email: formData.email,
+    fieldsReceived: Object.keys(formData).length
+  });
+
+  try {
+    if (!formData.email) {
+      return res.status(400).json({ error: 'Email is required' });
+    }
+
+    // 1. CREATE SESSION (same as QR flow)
+    const sessionResponse = await fetch('https://ticketguysclerk.vercel.app/api/create-session', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ email: formData.email })
+    });
+
+    const sessionData = await sessionResponse.json();
+    if (!sessionData.success) {
+      throw new Error(sessionData.message || 'Failed to create session');
+    }
+
+    const { sessionId, userId } = sessionData;
+
+    // 2. PREPARE DATA (map your form fields)
+    // ✅ CORRECTED FIELD MAPPING
+    const firestoreData = {
+      // Personal Information
+      email: formData.email,
+      first_name: formData.firstname,
+      middle_name: formData.middlename,
+      last_name: formData.lastname,
+      phone_number: formData.mobileno,
+
+      // Address
+      residence_address: formData.residenceaddress,
+      state: formData.state,
+      city: formData.city,
+      zip_code: formData.zipcodeno,
+
+      // Driver Info
+      driving_license_no: formData.drivingllicenseno,
+      dl_class: formData.dlClass,
+      cdl: formData.cdl,
+      date_of_birth: formData.dob,
+      sex: formData.sex,
+      height: formData.height,
+      weight: formData.weight,
+      race: formData.race,
+      eye_color: formData.eyeColor,
+      hair_color: formData.hairColor,
+
+      // Vehicle Info
+      license_plate: formData.licenseplate,
+      vehicle_state: formData.state, // Using same as state
+      vehicle_regexp: formData.regexp,
+      vehicle_color: formData.colorvehicle,
+      vehicle_make: formData.make,
+      vehicle_model: formData.model,
+      vehicle_type: formData.type,
+      vehicle_year: formData.carYear,
+      vin: formData.vin,
+
+      // Citation Info
+      citation_number: formData.citationnumber,
+      issuing_authority: formData.issuingauthority,
+      issue_date_time: formData['issue-datetime'],
+
+      citation_type: formData.citation,
+      alleged_speed: formData.allegedspeed,
+      posted_speed: formData.postedspeed,
+      case_no: formData.caseno,
+
+      // Violation Details
+      construction_zone: formData.constrzone,
+      school_zone: formData.schoolzone,
+      accident: formData.accident,
+      knew_race: formData.knewrace,
+      search: formData.search,
+      contraband: formData.contraband,
+
+      // Officer & Court
+      officer_name: formData.officername,
+      officer_id: formData.officerid,
+      court_information: formData.courtinformation,
+      court_hours: formData.courtHours,
+
+      // Additional Vehicle Info
+      trailer_plate: formData.trailerplate,
+      dot: formData.dot,
+      trailer_state: formData.trailerState,
+      cmv: formData.cmv,
+      hazmat: formData.hazmat,
+      towed: formData.towed,
+      financial: formData.financial,
+
+      // Metadata
+      dataSource: 'manual_form',
+      manuallyEntered: true,
+      submissionDate: new Date()
+    };
+
+    // ADD THIS LINE BEFORE SAVING TO FIRESTORE
+    const cleanedFirestoreData = removeUndefinedValues(firestoreData);
+    const saveSuccess = await saveToFirestore(
+      sessionId,
+      userId,
+      cleanedFirestoreData,   // Only cleanedFirestoreData goes here!
+      'manual_form_complete',
+      formData.email,
+      'manual_form'
+    );
+
+
+    if (!saveSuccess) {
+      throw new Error('Failed to save manual form data');
+    }
+
+    // 4. SUCCESS RESPONSE
+    res.json({
+      success: true,
+      sessionId: sessionId,
+      userId: userId,
+      message: 'Manual form submitted successfully',
+      status: 'completed'
+    });
+
+  } catch (error) {
+    console.error('❌ Manual form submission error:', error);
+    res.status(500).json({
+      success: false,
+      error: 'Failed to submit manual form',
+      details: error.message
+    });
+  }
+});
+
+// ✅ NO TICKET - MANUAL INFORMATION FORM
+app.post('/submit-no-ticket-form', async (req, res) => {
+  const formData = req.body;
+
+  console.log('🔄 Processing no-ticket form submission:', {
+    email: formData.email,
+    fieldsReceived: Object.keys(formData).length
+  });
+
+  try {
+    // ✅ VALIDATE REQUIRED FIELDS
+    const requiredFields = ['email', 'first_name', 'last_name', 'infraction_violation', 'phone_number', 'county', 'is_jp'];
+    const missingFields = requiredFields.filter(field => !formData[field] || formData[field].toString().trim() === '');
+
+    if (missingFields.length > 0) {
+      return res.status(400).json({
+        error: 'Missing required fields',
+        missingFields: missingFields
+      });
+    }
+
+    // ✅ VALIDATE JP PRECINCT
+    if (formData.is_jp === 'Y' && (!formData.precinct_number || formData.precinct_number.trim() === '')) {
+      return res.status(400).json({
+        error: 'Precinct number required for JP cases',
+        missingFields: ['precinct_number']
+      });
+    }
+
+    // 1. CREATE SESSION (same as other flows)
+    const sessionResponse = await fetch('https://ticketguysclerk.vercel.app/api/create-session', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ email: formData.email })
+    });
+
+    const sessionData = await sessionResponse.json();
+    if (!sessionData.success) {
+      throw new Error(sessionData.message || 'Failed to create session');
+    }
+
+    const { sessionId, userId } = sessionData;
+
+    // 2. PREPARE DATA FOR FIRESTORE
+    const firestoreData = {
+      // Personal Information (REQUIRED)
+      email: formData.email,
+      first_name: formData.first_name,
+      middle_name: formData.middle_name || '',
+      last_name: formData.last_name,
+      phone_number: formData.phone_number,
+      county: formData.county,
+      is_jp: formData.is_jp,
+
+      // Violation Information (REQUIRED)
+      infraction_violation: formData.infraction_violation,
+
+      // Conditional JP Precinct
+      ...(formData.is_jp === 'Y' && { precinct_number: formData.precinct_number }),
+
+      // Metadata
+      dataSource: 'no_ticket_form',
+      manuallyEntered: true,
+      hasPhysicalTicket: false,
+      submissionDate: new Date()
+    };
+
+    // 3. SAVE TO FIRESTORE
+    const cleanedData = removeUndefinedValues(firestoreData);
+    const saveSuccess = await saveToFirestore(
+      sessionId,
+      userId,
+      cleanedData,
+      'no_ticket_form',
+      formData.email,
+      'no_ticket_form'
+    );
+
+    if (!saveSuccess) {
+      throw new Error('Failed to save no-ticket form data');
+    }
+
+    // 4. SUCCESS RESPONSE
+    res.json({
+      success: true,
+      sessionId: sessionId,
+      userId: userId,
+      message: 'Information submitted successfully',
+      status: 'completed',
+      caseStatus: 'approval_pending'
+    });
+
+  } catch (error) {
+    console.error('❌ No-ticket form submission error:', error);
+    res.status(500).json({
+      success: false,
+      error: 'Failed to submit information',
       details: error.message
     });
   }
@@ -494,8 +997,5 @@ app.use((error, req, res, next) => {
 // Start server
 app.listen(PORT, () => {
   console.log(`🚀 Server running on port ${PORT}`);
-  // if (!fs.existsSync('.env')) {
-  //   console.log('⚠️  .env file not found. Please create one with:');
-  //   console.log('OPENAI_API_KEY=your_openai_api_key_here');
-  // }
+  console.log(`🎯 CURRENT MODE: ${MODE}`);
 });
