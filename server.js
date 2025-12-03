@@ -16,86 +16,84 @@ const MODE = 'prod'; // Change to 'prod' for real AI extraction
 function mockDataExtraction() {
   console.log('🔄 Using MOCK DATA for extraction');
 
-  // Return data in the SAME STRUCTURE the AI will return
   return {
     ticket_header: {
-      County: "Bexar",
-      Precinct: "3",
-      Citation_Number: "MOCK" + Math.random().toString().slice(2, 8),
-      Issue_Date_and_Time: "09/19/2025 at 07:58 AM",
-      Violation_Date_and_Time: "09/19/2025 at 07:58 AM"
+      county: "Bexar",
+      precinct: "3",
+      citation_number: "MOCK" + Math.random().toString().slice(2, 8),
+      issue_date_and_time: "09/19/2025 at 07:58 AM",
+      violation_date_and_time: "09/19/2025 at 07:58 AM"
     },
     
     violator_information: {
-      LAST_NAME: "DOE",
-      FIRST: "JOHN",
-      MIDDLE: "", // ✅ Missing - will trigger form
-      RESIDENCE_ADDRESS: "123 MAIN ST",
-      PHONE: "", // ✅ Missing - will trigger form
-      TY: "SAN ANTONIO",
-      STATE: "TX",
-      ZIP_CODE: "78201",
-      INTER_LICENSE_NUMBER: "DL123456",
-      DL_CLASS: "C",
-      DL_STATE: "TX",
-      CDL: "No",
-      DATE_OF_BIRTH: "01/01/1980",
-      SEX: "M",
-      RACE: "H",
-      HEIGHT: "510",
-      WEIGHT: "180",
-      EYE_COLOR: "BRO",
-      HAIR_COLOR: "BRO"
+      last_name: "DOE",
+      first: "JOHN",
+      middle: "", // ✅ Missing - will trigger form
+      residence_address: "123 MAIN ST",
+      phone: "", // ✅ Missing - will trigger form
+      city: "SAN ANTONIO",
+      state: "TX",
+      zip_code: "78201",
+      inter_license_number: "DL123456",
+      dl_class: "C",
+      dl_state: "TX",
+      cdl: "No",
+      date_of_birth: "01/01/1980",
+      sex: "M",
+      race: "H",
+      height: "510",
+      weight: "180",
+      eye_color: "BRO",
+      hair_color: "BRO"
     },
     
     additional_information_business: {
-      PARENT_EMPLOYER: "",
-      ADDRESS: "",
-      PHONE: "",
-      CITY: "",
-      STATE: "",
-      ZIP_CODE: ""
+      parent_employer: "",
+      address: "",
+      phone: "",
+      city: "",
+      state: "",
+      zip_code: ""
     },
     
     vehicle_information: {
-      LICENSE_PLATE: "MOCK123",
-      STATE: "TX",
-      REG_EXP: "0126",
-      COLOR: "BLUE",
-      MAKE: "HONDA",
-      MODEL: "CIVIC",
-      TYPE: "",
-      VIN: "1HGCM82633A123456",
-      YEAR: "2022",
-      C_W: "No",
-      MAXIAT: "No",
-      TRAILER_PLATE: "",
-      TRAILER_STATE: "",
-      DOT_NUMBER: "",
-      TOWED: "No"
+      license_plate: "MOCK123",
+      state: "TX",
+      reg_exp: "0126",
+      color: "BLUE",
+      make: "HONDA",
+      model: "CIVIC",
+      type: "",
+      vin: "1HGCM82633A123456",
+      year: "2022",
+      c_w: "No",
+      maxiat: "No",
+      trailer_plate: "",
+      trailer_state: "",
+      dot_number: "",
+      towed: "No"
     },
     
     location_information: {
-      ADDRESS: "1400 E BORGFELD DR",
-      DIRECTION_OF_TRAVEL: "",
-      DIRECTION_OF_TURN: ""
+      address: "1400 E BORGFELD DR",
+      direction_of_travel: "",
+      direction_of_turn: ""
     },
     
     violation: {
-      CITATION: "Speeding in School Zone",
-      ALLEGED_SPEED_MPH: "44",
-      POSTED_SPEED_MPH: "30",
-      CASE_NO: "",
-      CONSTR_ZONE_WORKERS_PRESENT: "No",
-      SCHOOL_ZONE: "Yes",
-      ACCIDENT: "No",
-      KNEWRACE: "No",
-      SEARCH: "No Search",
-      CONTRABAND: "",
-      ADDITIONAL_NOTES: "ATTENDED AND UNABLE TO VERIFY FINANCIAL RESPONSIBILITY"
+      citation: "Speeding in School Zone",
+      alleged_speed_mph: "44",
+      posted_speed_mph: "30",
+      case_no: "",
+      constr_zone_workers_present: "No",
+      school_zone: "Yes",
+      accident: "No",
+      knewrace: "No",
+      search: "No Search",
+      contraband: "",
+      additional_notes: "ATTENDED AND UNABLE TO VERIFY FINANCIAL RESPONSIBILITY"
     },
     
-    // ✅ THESE ARE MISSING TO TRIGGER THE FORM:
     email: "", // Will be provided by user
     is_jp: "", // Missing - will trigger form
     precinct_number: "" // Missing but not required unless JP=Y
@@ -202,12 +200,12 @@ function getImageInfo(filePath, originalname) {
 function checkMissingFields(extractedData, userEmail) {
   const requiredFields = [
     'email',
-    'first_name', 
-    'middle_name', 
-    'last_name',
-    'infraction_violation', 
-    'phone_number',
-    'county',
+    'first_name',  // This should now match `violator_information.first`
+    'middle_name', // This should now match `violator_information.middle`
+    'last_name',   // This should now match `violator_information.last_name`
+    'infraction_violation', // This should now match `violation.citation`
+    'phone_number', // This should now match `violator_information.phone`
+    'county',      // This should now match `ticket_header.county`
     'is_jp'
   ];
 
@@ -220,32 +218,44 @@ function checkMissingFields(extractedData, userEmail) {
       }
     }
     else if (field === 'first_name') {
-      if (!extractedData.violator_information?.FIRST || extractedData.violator_information.FIRST.trim() === '') {
+      // Now lowercase 'first' instead of 'FIRST'
+      if (!extractedData.violator_information?.first || 
+          extractedData.violator_information.first.trim() === '') {
         missingFields.push('first_name');
       }
     }
     else if (field === 'middle_name') {
-      if (!extractedData.violator_information?.MIDDLE || extractedData.violator_information.MIDDLE.trim() === '') {
+      // Now lowercase 'middle' instead of 'MIDDLE'
+      if (!extractedData.violator_information?.middle || 
+          extractedData.violator_information.middle.trim() === '') {
         missingFields.push('middle_name');
       }
     }
     else if (field === 'last_name') {
-      if (!extractedData.violator_information?.LAST_NAME || extractedData.violator_information.LAST_NAME.trim() === '') {
+      // Now lowercase 'last_name' instead of 'LAST_NAME'
+      if (!extractedData.violator_information?.last_name || 
+          extractedData.violator_information.last_name.trim() === '') {
         missingFields.push('last_name');
       }
     }
-    else if (field === 'infraction_violation') {
-      if (!extractedData.violation?.CITATION || extractedData.violation.CITATION.trim() === '') {
-        missingFields.push('infraction_violation');
-      }
-    }
     else if (field === 'phone_number') {
-      if (!extractedData.violator_information?.PHONE || extractedData.violator_information.PHONE.trim() === '') {
+      // Now lowercase 'phone' instead of 'PHONE'
+      if (!extractedData.violator_information?.phone || 
+          extractedData.violator_information.phone.trim() === '') {
         missingFields.push('phone_number');
       }
     }
+    else if (field === 'infraction_violation') {
+      // Now lowercase 'citation' instead of 'CITATION'
+      if (!extractedData.violation?.citation || 
+          extractedData.violation.citation.trim() === '') {
+        missingFields.push('infraction_violation');
+      }
+    }
     else if (field === 'county') {
-      if (!extractedData.ticket_header?.County || extractedData.ticket_header.County.trim() === '') {
+      // Now lowercase 'county' instead of 'County'
+      if (!extractedData.ticket_header?.county || 
+          extractedData.ticket_header.county.trim() === '') {
         missingFields.push('county');
       }
     }
@@ -427,85 +437,85 @@ app.post('/extract-data', upload.array('images', 5), async (req, res) => {
 
 {
   "ticket_header": {
-    "County": "[County name]",
-    "Precinct": "[Precinct number]", 
-    "Citation_Number": "[Citation number]",
-    "Issue_Date_and_Time": "[Issue date and time]",
-    "Violation_Date_and_Time": "[Violation date and time]"
+    "county": "[County name]",
+    "precinct": "[Precinct number]", 
+    "citation_number": "[Citation number]",
+    "issue_date_and_time": "[Issue date and time]",
+    "violation_date_and_time": "[Violation date and time]"
   },
   
   "violator_information": {
-    "LAST_NAME": "[Last name]",
-    "FIRST": "[First name]",
-    "MIDDLE": "[Middle name]",
-    "RESIDENCE_ADDRESS": "[Street address]",
-    "PHONE": "[Phone number or empty]",
-    "TY": "[City]", 
-    "STATE": "[State]",
-    "ZIP_CODE": "[ZIP code]",
-    "INTER_LICENSE_NUMBER": "[Driver license number]",
-    "DL_CLASS": "[License class]",
-    "DL_STATE": "[License state]",
-    "CDL": "[Yes/No]",
-    "DATE_OF_BIRTH": "[Date of birth]",
-    "SEX": "[M/F]",
-    "RACE": "[Race code]", 
-    "HEIGHT": "[Height in inches]",
-    "WEIGHT": "[Weight in lbs]",
-    "EYE_COLOR": "[Eye color]",
-    "HAIR_COLOR": "[Hair color]"
+    "last_name": "[Last name]",
+    "first": "[First name]",
+    "middle": "[Middle name]",
+    "residence_address": "[Street address]",
+    "phone": "[Phone number or empty]",
+    "city": "[City]", 
+    "state": "[State]",
+    "zip_code": "[ZIP code]",
+    "inter_license_number": "[Driver license number]",
+    "dl_class": "[License class]",
+    "dl_state": "[License state]",
+    "cdl": "[Yes/No]",
+    "date_of_birth": "[Date of birth]",
+    "sex": "[M/F]",
+    "race": "[Race code]", 
+    "height": "[Height in inches]",
+    "weight": "[Weight in lbs]",
+    "eye_color": "[Eye color]",
+    "hair_color": "[Hair color]"
   },
   
   "additional_information_business": {
-    "PARENT_EMPLOYER": "[Usually 'PARENT / EMPLOYER' or empty]",
-    "ADDRESS": "[Address or empty]",
-    "PHONE": "[Phone or empty]",
-    "CITY": "[City or empty]",
-    "STATE": "[State or empty]",
-    "ZIP_CODE": "[ZIP or empty]"
+    "parent_employer": "[Usually 'PARENT / EMPLOYER' or empty]",
+    "address": "[Address or empty]",
+    "phone": "[Phone or empty]",
+    "city": "[City or empty]",
+    "state": "[State or empty]",
+    "zip_code": "[ZIP or empty]"
   },
   
   "vehicle_information": {
-    "LICENSE_PLATE": "[License plate]",
-    "STATE": "[State]",
-    "REG_EXP": "[Registration expiration]",
-    "COLOR": "[Vehicle color]",
-    "MAKE": "[Make]",
-    "MODEL": "[Model]",
-    "TYPE": "[Vehicle type or empty]",
-    "VIN": "[VIN number]",
-    "YEAR": "[Year]",
-    "C_W": "[Yes/No]",
-    "MAXIAT": "[Yes/No]",
-    "TRAILER_PLATE": "[Trailer plate or empty]",
-    "TRAILER_STATE": "[Trailer state or empty]",
-    "DOT_NUMBER": "[DOT number or empty]",
-    "TOWED": "[Yes/No]"
+    "license_plate": "[License plate]",
+    "state": "[State]",
+    "reg_exp": "[Registration expiration]",
+    "color": "[Vehicle color]",
+    "make": "[Make]",
+    "model": "[Model]",
+    "type": "[Vehicle type or empty]",
+    "vin": "[VIN number]",
+    "year": "[Year]",
+    "c_w": "[Yes/No]",
+    "maxiat": "[Yes/No]",
+    "trailer_plate": "[Trailer plate or empty]",
+    "trailer_state": "[Trailer state or empty]",
+    "dot_number": "[DOT number or empty]",
+    "towed": "[Yes/No]"
   },
   
   "location_information": {
-    "ADDRESS": "[Violation location address]",
-    "DIRECTION_OF_TRAVEL": "[Direction or empty]",
-    "DIRECTION_OF_TURN": "[Direction or empty]"
+    "address": "[Violation location address]",
+    "direction_of_travel": "[Direction or empty]",
+    "direction_of_turn": "[Direction or empty]"
   },
   
   "violation": {
-    "CITATION": "[Violation description]",
-    "ALLEGED_SPEED_MPH": "[Speed]",
-    "POSTED_SPEED_MPH": "[Speed limit]",
-    "CASE_NO": "[Case number or empty]",
-    "CONSTR_ZONE_WORKERS_PRESENT": "[Yes/No]",
-    "SCHOOL_ZONE": "[Yes/No]",
-    "ACCIDENT": "[Yes/No]",
-    "KNEWRACE": "[Yes/No]",
-    "SEARCH": "[Search details]",
-    "CONTRABAND": "[Contraband or empty]",
-    "ADDITIONAL_NOTES": "[Any additional text]"
+    "citation": "[Violation description]",
+    "alleged_speed_mph": "[Speed]",
+    "posted_speed_mph": "[Speed limit]",
+    "case_no": "[Case number or empty]",
+    "constr_zone_workers_present": "[Yes/No]",
+    "school_zone": "[Yes/No]",
+    "accident": "[Yes/No]",
+    "knewrace": "[Yes/No]",
+    "search": "[Search details]",
+    "contraband": "[Contraband or empty]",
+    "additional_notes": "[Any additional text]"
   }
 }
 
 CRITICAL RULES:
-1. Use EXACTLY these field names (case-sensitive)
+1. Use EXACTLY these lowercase field names (snake_case)
 2. All fields MUST be included even if empty
 3. Map data from ticket to matching fields
 4. Preserve original text from ticket
@@ -689,85 +699,85 @@ app.post('/extract-data-from-url', async (req, res) => {
 
 {
   "ticket_header": {
-    "County": "[County name]",
-    "Precinct": "[Precinct number]", 
-    "Citation_Number": "[Citation number]",
-    "Issue_Date_and_Time": "[Issue date and time]",
-    "Violation_Date_and_Time": "[Violation date and time]"
+    "county": "[County name]",
+    "precinct": "[Precinct number]", 
+    "citation_number": "[Citation number]",
+    "issue_date_and_time": "[Issue date and time]",
+    "violation_date_and_time": "[Violation date and time]"
   },
   
   "violator_information": {
-    "LAST_NAME": "[Last name]",
-    "FIRST": "[First name]",
-    "MIDDLE": "[Middle name]",
-    "RESIDENCE_ADDRESS": "[Street address]",
-    "PHONE": "[Phone number or empty]",
-    "TY": "[City]", 
-    "STATE": "[State]",
-    "ZIP_CODE": "[ZIP code]",
-    "INTER_LICENSE_NUMBER": "[Driver license number]",
-    "DL_CLASS": "[License class]",
-    "DL_STATE": "[License state]",
-    "CDL": "[Yes/No]",
-    "DATE_OF_BIRTH": "[Date of birth]",
-    "SEX": "[M/F]",
-    "RACE": "[Race code]", 
-    "HEIGHT": "[Height in inches]",
-    "WEIGHT": "[Weight in lbs]",
-    "EYE_COLOR": "[Eye color]",
-    "HAIR_COLOR": "[Hair color]"
+    "last_name": "[Last name]",
+    "first": "[First name]",
+    "middle": "[Middle name]",
+    "residence_address": "[Street address]",
+    "phone": "[Phone number or empty]",
+    "city": "[City]", 
+    "state": "[State]",
+    "zip_code": "[ZIP code]",
+    "inter_license_number": "[Driver license number]",
+    "dl_class": "[License class]",
+    "dl_state": "[License state]",
+    "cdl": "[Yes/No]",
+    "date_of_birth": "[Date of birth]",
+    "sex": "[M/F]",
+    "race": "[Race code]", 
+    "height": "[Height in inches]",
+    "weight": "[Weight in lbs]",
+    "eye_color": "[Eye color]",
+    "hair_color": "[Hair color]"
   },
   
   "additional_information_business": {
-    "PARENT_EMPLOYER": "[Usually 'PARENT / EMPLOYER' or empty]",
-    "ADDRESS": "[Address or empty]",
-    "PHONE": "[Phone or empty]",
-    "CITY": "[City or empty]",
-    "STATE": "[State or empty]",
-    "ZIP_CODE": "[ZIP or empty]"
+    "parent_employer": "[Usually 'PARENT / EMPLOYER' or empty]",
+    "address": "[Address or empty]",
+    "phone": "[Phone or empty]",
+    "city": "[City or empty]",
+    "state": "[State or empty]",
+    "zip_code": "[ZIP or empty]"
   },
   
   "vehicle_information": {
-    "LICENSE_PLATE": "[License plate]",
-    "STATE": "[State]",
-    "REG_EXP": "[Registration expiration]",
-    "COLOR": "[Vehicle color]",
-    "MAKE": "[Make]",
-    "MODEL": "[Model]",
-    "TYPE": "[Vehicle type or empty]",
-    "VIN": "[VIN number]",
-    "YEAR": "[Year]",
-    "C_W": "[Yes/No]",
-    "MAXIAT": "[Yes/No]",
-    "TRAILER_PLATE": "[Trailer plate or empty]",
-    "TRAILER_STATE": "[Trailer state or empty]",
-    "DOT_NUMBER": "[DOT number or empty]",
-    "TOWED": "[Yes/No]"
+    "license_plate": "[License plate]",
+    "state": "[State]",
+    "reg_exp": "[Registration expiration]",
+    "color": "[Vehicle color]",
+    "make": "[Make]",
+    "model": "[Model]",
+    "type": "[Vehicle type or empty]",
+    "vin": "[VIN number]",
+    "year": "[Year]",
+    "c_w": "[Yes/No]",
+    "maxiat": "[Yes/No]",
+    "trailer_plate": "[Trailer plate or empty]",
+    "trailer_state": "[Trailer state or empty]",
+    "dot_number": "[DOT number or empty]",
+    "towed": "[Yes/No]"
   },
   
   "location_information": {
-    "ADDRESS": "[Violation location address]",
-    "DIRECTION_OF_TRAVEL": "[Direction or empty]",
-    "DIRECTION_OF_TURN": "[Direction or empty]"
+    "address": "[Violation location address]",
+    "direction_of_travel": "[Direction or empty]",
+    "direction_of_turn": "[Direction or empty]"
   },
   
   "violation": {
-    "CITATION": "[Violation description]",
-    "ALLEGED_SPEED_MPH": "[Speed]",
-    "POSTED_SPEED_MPH": "[Speed limit]",
-    "CASE_NO": "[Case number or empty]",
-    "CONSTR_ZONE_WORKERS_PRESENT": "[Yes/No]",
-    "SCHOOL_ZONE": "[Yes/No]",
-    "ACCIDENT": "[Yes/No]",
-    "KNEWRACE": "[Yes/No]",
-    "SEARCH": "[Search details]",
-    "CONTRABAND": "[Contraband or empty]",
-    "ADDITIONAL_NOTES": "[Any additional text]"
+    "citation": "[Violation description]",
+    "alleged_speed_mph": "[Speed]",
+    "posted_speed_mph": "[Speed limit]",
+    "case_no": "[Case number or empty]",
+    "constr_zone_workers_present": "[Yes/No]",
+    "school_zone": "[Yes/No]",
+    "accident": "[Yes/No]",
+    "knewrace": "[Yes/No]",
+    "search": "[Search details]",
+    "contraband": "[Contraband or empty]",
+    "additional_notes": "[Any additional text]"
   }
 }
 
 CRITICAL RULES:
-1. Use EXACTLY these field names (case-sensitive)
+1. Use EXACTLY these lowercase field names (snake_case)
 2. All fields MUST be included even if empty
 3. Map data from ticket to matching fields
 4. Preserve original text from ticket
