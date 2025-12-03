@@ -12,56 +12,93 @@ const MODE = 'prod'; // Change to 'prod' for real AI extraction
 
 // ✅ MOCK DATA EXTRACTION FUNCTION
 // ✅ MOCK DATA EXTRACTION FUNCTION
+// ✅ MOCK DATA EXTRACTION FUNCTION - UPDATED TO MATCH NEW STRUCTURE
 function mockDataExtraction() {
   console.log('🔄 Using MOCK DATA for extraction');
 
+  // Return data in the SAME STRUCTURE the AI will return
   return {
-    // Citation object (as per new structure)
-    citation: {
-      citation_number: "MOCK" + Math.random().toString().slice(2, 8),
-      issue_date: new Date().toLocaleDateString('en-US'),
-      issue_time: "10:30 AM",
-      violation_date: new Date().toLocaleDateString('en-US'),
-      violation_time: "10:30 AM",
-      county: "Bexar"
+    ticket_header: {
+      County: "Bexar",
+      Precinct: "3",
+      Citation_Number: "MOCK" + Math.random().toString().slice(2, 8),
+      Issue_Date_and_Time: "09/19/2025 at 07:58 AM",
+      Violation_Date_and_Time: "09/19/2025 at 07:58 AM"
     },
     
-    // Personal info
-    first_name: "JOHN",
-    middle_name: "", // Missing - will trigger form
-    last_name: "DOE",
-    email: "",
-    phone_number: "", // Missing - will trigger form
-    county: "Bexar",
-    is_jp: "", // Missing - will trigger form
-    precinct_number: "",
-    
-    // Violation
-    infraction_violation: "Speeding in School Zone",
-    
-    // Vehicle info
-    vehicle_information: {
-      make: "HONDA",
-      model: "CIVIC",
-      year: "2022",
-      color: "BLUE",
-      license_plate: "MOCK123",
-      state: "TX"
-    },
-    
-    // Location info
-    location_information: {
-      location: "1400 E BORGFELD DR",
-      city: "SAN ANTONIO",
-      state: "TX"
-    },
-    
-    // Violator info
     violator_information: {
-      driver_license_number: "DL123456",
-      city: "SAN ANTONIO",
-      state: "TX"
-    }
+      LAST_NAME: "DOE",
+      FIRST: "JOHN",
+      MIDDLE: "", // ✅ Missing - will trigger form
+      RESIDENCE_ADDRESS: "123 MAIN ST",
+      PHONE: "", // ✅ Missing - will trigger form
+      TY: "SAN ANTONIO",
+      STATE: "TX",
+      ZIP_CODE: "78201",
+      INTER_LICENSE_NUMBER: "DL123456",
+      DL_CLASS: "C",
+      DL_STATE: "TX",
+      CDL: "No",
+      DATE_OF_BIRTH: "01/01/1980",
+      SEX: "M",
+      RACE: "H",
+      HEIGHT: "510",
+      WEIGHT: "180",
+      EYE_COLOR: "BRO",
+      HAIR_COLOR: "BRO"
+    },
+    
+    additional_information_business: {
+      PARENT_EMPLOYER: "",
+      ADDRESS: "",
+      PHONE: "",
+      CITY: "",
+      STATE: "",
+      ZIP_CODE: ""
+    },
+    
+    vehicle_information: {
+      LICENSE_PLATE: "MOCK123",
+      STATE: "TX",
+      REG_EXP: "0126",
+      COLOR: "BLUE",
+      MAKE: "HONDA",
+      MODEL: "CIVIC",
+      TYPE: "",
+      VIN: "1HGCM82633A123456",
+      YEAR: "2022",
+      C_W: "No",
+      MAXIAT: "No",
+      TRAILER_PLATE: "",
+      TRAILER_STATE: "",
+      DOT_NUMBER: "",
+      TOWED: "No"
+    },
+    
+    location_information: {
+      ADDRESS: "1400 E BORGFELD DR",
+      DIRECTION_OF_TRAVEL: "",
+      DIRECTION_OF_TURN: ""
+    },
+    
+    violation: {
+      CITATION: "Speeding in School Zone",
+      ALLEGED_SPEED_MPH: "44",
+      POSTED_SPEED_MPH: "30",
+      CASE_NO: "",
+      CONSTR_ZONE_WORKERS_PRESENT: "No",
+      SCHOOL_ZONE: "Yes",
+      ACCIDENT: "No",
+      KNEWRACE: "No",
+      SEARCH: "No Search",
+      CONTRABAND: "",
+      ADDITIONAL_NOTES: "ATTENDED AND UNABLE TO VERIFY FINANCIAL RESPONSIBILITY"
+    },
+    
+    // ✅ THESE ARE MISSING TO TRIGGER THE FORM:
+    email: "", // Will be provided by user
+    is_jp: "", // Missing - will trigger form
+    precinct_number: "" // Missing but not required unless JP=Y
   };
 }
 
@@ -165,10 +202,10 @@ function getImageInfo(filePath, originalname) {
 function checkMissingFields(extractedData, userEmail) {
   const requiredFields = [
     'email',
-    'first_name',
-    'middle_name',
+    'first_name', 
+    'middle_name', 
     'last_name',
-    'infraction_violation',
+    'infraction_violation', 
     'phone_number',
     'county',
     'is_jp'
@@ -182,16 +219,34 @@ function checkMissingFields(extractedData, userEmail) {
         missingFields.push('email');
       }
     }
+    else if (field === 'first_name') {
+      if (!extractedData.violator_information?.FIRST || extractedData.violator_information.FIRST.trim() === '') {
+        missingFields.push('first_name');
+      }
+    }
+    else if (field === 'middle_name') {
+      if (!extractedData.violator_information?.MIDDLE || extractedData.violator_information.MIDDLE.trim() === '') {
+        missingFields.push('middle_name');
+      }
+    }
+    else if (field === 'last_name') {
+      if (!extractedData.violator_information?.LAST_NAME || extractedData.violator_information.LAST_NAME.trim() === '') {
+        missingFields.push('last_name');
+      }
+    }
     else if (field === 'infraction_violation') {
-      // ✅ FIXED: Check multiple possible locations for violation text
-      const violationText = 
-        extractedData.infraction_violation || 
-        extractedData.violation?.citation ||
-        extractedData.citation?.violation ||
-        extractedData.violation_description;
-      
-      if (!violationText || violationText.toString().trim() === '') {
+      if (!extractedData.violation?.CITATION || extractedData.violation.CITATION.trim() === '') {
         missingFields.push('infraction_violation');
+      }
+    }
+    else if (field === 'phone_number') {
+      if (!extractedData.violator_information?.PHONE || extractedData.violator_information.PHONE.trim() === '') {
+        missingFields.push('phone_number');
+      }
+    }
+    else if (field === 'county') {
+      if (!extractedData.ticket_header?.County || extractedData.ticket_header.County.trim() === '') {
+        missingFields.push('county');
       }
     }
     else if (!extractedData[field] || extractedData[field].toString().trim() === '') {
@@ -200,7 +255,8 @@ function checkMissingFields(extractedData, userEmail) {
   });
 
   // Special check: If JP=Y, precinct is required
-  if (extractedData.is_jp === 'Y' && (!extractedData.precinct_number || extractedData.precinct_number.trim() === '')) {
+  const isJp = extractedData.is_jp || "";
+  if (isJp === 'Y' && (!extractedData.precinct_number || extractedData.precinct_number.trim() === '')) {
     missingFields.push('precinct_number');
   }
 
@@ -367,75 +423,97 @@ app.post('/extract-data', upload.array('images', 5), async (req, res) => {
 
           // Prepare prompt for structured data extraction
 
-          const systemPrompt = `You are an expert at extracting data from traffic citations. 
-Extract ALL text from the image and organize it into this EXACT JSON structure:
+          const systemPrompt = `You are an expert data extraction system for Texas traffic violation tickets. Extract EVERY FIELD from the ticket image and organize it into this EXACT JSON structure:
 
 {
-  "citation": {
-    "citation_number": "",
-    "issue_date": "",
-    "issue_time": "",
-    "violation_date": "",
-    "violation_time": "",
-    "county": ""
+  "ticket_header": {
+    "County": "[County name]",
+    "Precinct": "[Precinct number]", 
+    "Citation_Number": "[Citation number]",
+    "Issue_Date_and_Time": "[Issue date and time]",
+    "Violation_Date_and_Time": "[Violation date and time]"
   },
-  "first_name": "",
-  "middle_name": "",
-  "last_name": "",
-  "email": "",
-  "phone_number": "",
-  "infraction_violation": "",
-  "county": "",
-  "is_jp": "",
-  "precinct_number": "",
-  "vehicle_information": {
-    "make": "",
-    "model": "",
-    "year": "",
-    "color": "",
-    "license_plate": "",
-    "state": ""
-  },
-  "location_information": {
-    "location": "",
-    "city": "",
-    "state": ""
-  },
+  
   "violator_information": {
-    "driver_license_number": "",
-    "city": "",
-    "state": ""
+    "LAST_NAME": "[Last name]",
+    "FIRST": "[First name]",
+    "MIDDLE": "[Middle name]",
+    "RESIDENCE_ADDRESS": "[Street address]",
+    "PHONE": "[Phone number or empty]",
+    "TY": "[City]", 
+    "STATE": "[State]",
+    "ZIP_CODE": "[ZIP code]",
+    "INTER_LICENSE_NUMBER": "[Driver license number]",
+    "DL_CLASS": "[License class]",
+    "DL_STATE": "[License state]",
+    "CDL": "[Yes/No]",
+    "DATE_OF_BIRTH": "[Date of birth]",
+    "SEX": "[M/F]",
+    "RACE": "[Race code]", 
+    "HEIGHT": "[Height in inches]",
+    "WEIGHT": "[Weight in lbs]",
+    "EYE_COLOR": "[Eye color]",
+    "HAIR_COLOR": "[Hair color]"
+  },
+  
+  "additional_information_business": {
+    "PARENT_EMPLOYER": "[Usually 'PARENT / EMPLOYER' or empty]",
+    "ADDRESS": "[Address or empty]",
+    "PHONE": "[Phone or empty]",
+    "CITY": "[City or empty]",
+    "STATE": "[State or empty]",
+    "ZIP_CODE": "[ZIP or empty]"
+  },
+  
+  "vehicle_information": {
+    "LICENSE_PLATE": "[License plate]",
+    "STATE": "[State]",
+    "REG_EXP": "[Registration expiration]",
+    "COLOR": "[Vehicle color]",
+    "MAKE": "[Make]",
+    "MODEL": "[Model]",
+    "TYPE": "[Vehicle type or empty]",
+    "VIN": "[VIN number]",
+    "YEAR": "[Year]",
+    "C_W": "[Yes/No]",
+    "MAXIAT": "[Yes/No]",
+    "TRAILER_PLATE": "[Trailer plate or empty]",
+    "TRAILER_STATE": "[Trailer state or empty]",
+    "DOT_NUMBER": "[DOT number or empty]",
+    "TOWED": "[Yes/No]"
+  },
+  
+  "location_information": {
+    "ADDRESS": "[Violation location address]",
+    "DIRECTION_OF_TRAVEL": "[Direction or empty]",
+    "DIRECTION_OF_TURN": "[Direction or empty]"
+  },
+  
+  "violation": {
+    "CITATION": "[Violation description]",
+    "ALLEGED_SPEED_MPH": "[Speed]",
+    "POSTED_SPEED_MPH": "[Speed limit]",
+    "CASE_NO": "[Case number or empty]",
+    "CONSTR_ZONE_WORKERS_PRESENT": "[Yes/No]",
+    "SCHOOL_ZONE": "[Yes/No]",
+    "ACCIDENT": "[Yes/No]",
+    "KNEWRACE": "[Yes/No]",
+    "SEARCH": "[Search details]",
+    "CONTRABAND": "[Contraband or empty]",
+    "ADDITIONAL_NOTES": "[Any additional text]"
   }
 }
 
 CRITICAL RULES:
-1. Use EXACTLY this field structure - citation object must be named "citation" (not "citation_info" or anything else)
-2. Put citation details inside "citation" object
-3. Put vehicle details inside "vehicle_information" object  
-4. Put location details inside "location_information" object
-5. If field not found, use empty string ""
-6. Return ONLY valid JSON, no explanations`;
+1. Use EXACTLY these field names (case-sensitive)
+2. All fields MUST be included even if empty
+3. Map data from ticket to matching fields
+4. Preserve original text from ticket
+5. Return ONLY JSON, no explanations
 
-          // Replace the current userPrompt with this:
-          const userPrompt = `Extract ALL text from this traffic citation image and map it to the exact JSON structure above.
+Now extract all data from the traffic ticket image.`;
 
-MAP THESE SPECIFIC FIELDS:
-- Citation/Ticket number → "citation.citation_number"
-- Issue date → "citation.issue_date"
-- Issue time → "citation.issue_time"
-- Violation date → "citation.violation_date"
-- Violation time → "citation.violation_time"
-- County → "citation.county" AND "county" (both places)
-- First name → "first_name" (top level)
-- Middle name → "middle_name" (top level)
-- Last name → "last_name" (top level)
-- Violation description → "infraction_violation" (top level)
-- Vehicle make → "vehicle_information.make"
-- Vehicle model → "vehicle_information.model"
-- License plate → "vehicle_information.license_plate"
-- Location → "location_information.location"
-
-Return ONLY the JSON object with this exact structure.`;
+         const userPrompt = `Extract all data from this Texas traffic citation image and format it as JSON using the exact structure provided.`;
 
           const response = await openai.chat.completions.create({
             model: "gpt-4o-mini",
@@ -461,7 +539,7 @@ Return ONLY the JSON object with this exact structure.`;
                 ]
               }
             ],
-            max_tokens: 1500,
+            max_tokens: 2000,
             temperature: 0.1
           });
 
@@ -607,75 +685,97 @@ app.post('/extract-data-from-url', async (req, res) => {
       console.log('🔄 Using REAL OpenAI API for URL extraction (PROD mode)');
 
       // Replace the current systemPrompt with this:
-const systemPrompt = `You are an expert at extracting data from traffic citations. 
-Extract ALL text from the image and organize it into this EXACT JSON structure:
+  const systemPrompt = `You are an expert data extraction system for Texas traffic violation tickets. Extract EVERY FIELD from the ticket image and organize it into this EXACT JSON structure:
 
 {
-  "citation": {
-    "citation_number": "",
-    "issue_date": "",
-    "issue_time": "",
-    "violation_date": "",
-    "violation_time": "",
-    "county": ""
+  "ticket_header": {
+    "County": "[County name]",
+    "Precinct": "[Precinct number]", 
+    "Citation_Number": "[Citation number]",
+    "Issue_Date_and_Time": "[Issue date and time]",
+    "Violation_Date_and_Time": "[Violation date and time]"
   },
-  "first_name": "",
-  "middle_name": "",
-  "last_name": "",
-  "email": "",
-  "phone_number": "",
-  "infraction_violation": "",
-  "county": "",
-  "is_jp": "",
-  "precinct_number": "",
-  "vehicle_information": {
-    "make": "",
-    "model": "",
-    "year": "",
-    "color": "",
-    "license_plate": "",
-    "state": ""
-  },
-  "location_information": {
-    "location": "",
-    "city": "",
-    "state": ""
-  },
+  
   "violator_information": {
-    "driver_license_number": "",
-    "city": "",
-    "state": ""
+    "LAST_NAME": "[Last name]",
+    "FIRST": "[First name]",
+    "MIDDLE": "[Middle name]",
+    "RESIDENCE_ADDRESS": "[Street address]",
+    "PHONE": "[Phone number or empty]",
+    "TY": "[City]", 
+    "STATE": "[State]",
+    "ZIP_CODE": "[ZIP code]",
+    "INTER_LICENSE_NUMBER": "[Driver license number]",
+    "DL_CLASS": "[License class]",
+    "DL_STATE": "[License state]",
+    "CDL": "[Yes/No]",
+    "DATE_OF_BIRTH": "[Date of birth]",
+    "SEX": "[M/F]",
+    "RACE": "[Race code]", 
+    "HEIGHT": "[Height in inches]",
+    "WEIGHT": "[Weight in lbs]",
+    "EYE_COLOR": "[Eye color]",
+    "HAIR_COLOR": "[Hair color]"
+  },
+  
+  "additional_information_business": {
+    "PARENT_EMPLOYER": "[Usually 'PARENT / EMPLOYER' or empty]",
+    "ADDRESS": "[Address or empty]",
+    "PHONE": "[Phone or empty]",
+    "CITY": "[City or empty]",
+    "STATE": "[State or empty]",
+    "ZIP_CODE": "[ZIP or empty]"
+  },
+  
+  "vehicle_information": {
+    "LICENSE_PLATE": "[License plate]",
+    "STATE": "[State]",
+    "REG_EXP": "[Registration expiration]",
+    "COLOR": "[Vehicle color]",
+    "MAKE": "[Make]",
+    "MODEL": "[Model]",
+    "TYPE": "[Vehicle type or empty]",
+    "VIN": "[VIN number]",
+    "YEAR": "[Year]",
+    "C_W": "[Yes/No]",
+    "MAXIAT": "[Yes/No]",
+    "TRAILER_PLATE": "[Trailer plate or empty]",
+    "TRAILER_STATE": "[Trailer state or empty]",
+    "DOT_NUMBER": "[DOT number or empty]",
+    "TOWED": "[Yes/No]"
+  },
+  
+  "location_information": {
+    "ADDRESS": "[Violation location address]",
+    "DIRECTION_OF_TRAVEL": "[Direction or empty]",
+    "DIRECTION_OF_TURN": "[Direction or empty]"
+  },
+  
+  "violation": {
+    "CITATION": "[Violation description]",
+    "ALLEGED_SPEED_MPH": "[Speed]",
+    "POSTED_SPEED_MPH": "[Speed limit]",
+    "CASE_NO": "[Case number or empty]",
+    "CONSTR_ZONE_WORKERS_PRESENT": "[Yes/No]",
+    "SCHOOL_ZONE": "[Yes/No]",
+    "ACCIDENT": "[Yes/No]",
+    "KNEWRACE": "[Yes/No]",
+    "SEARCH": "[Search details]",
+    "CONTRABAND": "[Contraband or empty]",
+    "ADDITIONAL_NOTES": "[Any additional text]"
   }
 }
 
 CRITICAL RULES:
-1. Use EXACTLY this field structure - citation object must be named "citation" (not "citation_info" or anything else)
-2. Put citation details inside "citation" object
-3. Put vehicle details inside "vehicle_information" object  
-4. Put location details inside "location_information" object
-5. If field not found, use empty string ""
-6. Return ONLY valid JSON, no explanations`;
+1. Use EXACTLY these field names (case-sensitive)
+2. All fields MUST be included even if empty
+3. Map data from ticket to matching fields
+4. Preserve original text from ticket
+5. Return ONLY JSON, no explanations
 
-// Replace the current userPrompt with this:
-const userPrompt = `Extract ALL text from this traffic citation image and map it to the exact JSON structure above.
+Now extract all data from the traffic ticket image.`;
 
-MAP THESE SPECIFIC FIELDS:
-- Citation/Ticket number → "citation.citation_number"
-- Issue date → "citation.issue_date"
-- Issue time → "citation.issue_time"
-- Violation date → "citation.violation_date"
-- Violation time → "citation.violation_time"
-- County → "citation.county" AND "county" (both places)
-- First name → "first_name" (top level)
-- Middle name → "middle_name" (top level)
-- Last name → "last_name" (top level)
-- Violation description → "infraction_violation" (top level)
-- Vehicle make → "vehicle_information.make"
-- Vehicle model → "vehicle_information.model"
-- License plate → "vehicle_information.license_plate"
-- Location → "location_information.location"
-
-Return ONLY the JSON object with this exact structure.`;
+         const userPrompt = `Extract all data from this Texas traffic citation image and format it as JSON using the exact structure provided.`;
 
       const response = await openai.chat.completions.create({
         model: "gpt-4o-mini",
