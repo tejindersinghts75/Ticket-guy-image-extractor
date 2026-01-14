@@ -5,7 +5,9 @@ const OpenAI = require('openai');
 const fs = require('fs');
 const path = require('path');
 const { initializeApp, cert } = require('firebase-admin/app');
-const { getFirestore } = require('firebase-admin/firestore');
+const { getFirestore, FieldValue } = require('firebase-admin/firestore');
+const Stripe = require('stripe');
+const stripe = new Stripe(process.env.STRIPE_SECRET_KEY);
 
 // ✅ SIMPLE MODE SWITCH - Change this value
 const MODE = 'prod'; // Change to 'prod' for real AI extraction
@@ -24,7 +26,7 @@ function mockDataExtraction() {
       issue_date_and_time: "09/19/2025 at 07:58 AM",
       violation_date_and_time: "09/19/2025 at 07:58 AM"
     },
-    
+
     violator_information: {
       last_name: "DOE",
       first: "JOHN",
@@ -46,7 +48,7 @@ function mockDataExtraction() {
       eye_color: "BRO",
       hair_color: "BRO"
     },
-    
+
     additional_information_business: {
       parent_employer: "",
       address: "",
@@ -55,7 +57,7 @@ function mockDataExtraction() {
       state: "",
       zip_code: ""
     },
-    
+
     vehicle_information: {
       license_plate: "MOCK123",
       state: "TX",
@@ -73,13 +75,13 @@ function mockDataExtraction() {
       dot_number: "",
       towed: "No"
     },
-    
+
     location_information: {
       address: "1400 E BORGFELD DR",
       direction_of_travel: "",
       direction_of_turn: ""
     },
-    
+
     violation: {
       citation: "Speeding in School Zone",
       alleged_speed_mph: "44",
@@ -93,7 +95,7 @@ function mockDataExtraction() {
       contraband: "",
       additional_notes: "ATTENDED AND UNABLE TO VERIFY FINANCIAL RESPONSIBILITY"
     },
-    
+
     email: "", // Will be provided by user
     is_jp: "", // Missing - will trigger form
     precinct_number: "" // Missing but not required unless JP=Y
@@ -174,6 +176,68 @@ const upload = multer({
   }
 });
 
+// Endpoint: POST /api/stripe-webhook
+// This endpoint must use raw body for signature verification
+app.post('/api/stripe-webhook', express.raw({ type: 'application/json' }), async (req, res) => {
+  const sig = req.headers['stripe-signature'];
+  const webhookSecret = process.env.STRIPE_WEBHOOK_SECRET; // Different for test vs live
+
+  let event;
+  try {
+    // 1. Verify the webhook is genuinely from Stripe
+    event = stripe.webhooks.constructEvent(req.body, sig, webhookSecret);
+  } catch (err) {
+    console.error(`⚠️ Webhook signature verification failed:`, err.message);
+    return res.status(400).send(`Webhook Error: ${err.message}`);
+  }
+
+  console.log(`✅ Received Stripe event: ${event.type}`);
+
+  // 2. Handle the specific event
+  switch (event.type) {
+    case 'checkout.session.completed':
+      const session = event.data.object;
+      const firebaseSessionId = session.client_reference_id; // This links to your ticket
+
+      console.log(`💰 Payment successful for Firestore session: ${firebaseSessionId}`);
+
+      try {
+        const ticketRef = db.collection('tickets').doc(firebaseSessionId);
+        await ticketRef.update({
+          paymentStatus: 'paid',
+          caseStatus: 'submitted_for_review', // Your next business logic step
+          paidAt: new Date(),
+          stripePaymentIntentId: session.payment_intent,
+          lastUpdated: new Date(),
+          statusHistory: FieldValue.arrayUnion({
+            status: 'payment_received',
+            timestamp: new Date(),
+            note: 'Customer completed payment via Stripe.',
+          }),
+        });
+        console.log(`✅ Firestore updated for session: ${firebaseSessionId}`);
+      } catch (firestoreError) {
+        console.error('❌ Firestore update failed:', firestoreError);
+        // Consider alerting yourself here
+      }
+      break;
+
+    case 'checkout.session.expired':
+      // Optional: Handle expired sessions
+      const expiredSession = event.data.object;
+      // You could update Firestore to `paymentStatus: 'expired'`
+      break;
+
+    // Add other events you want to handle, like payment failure
+    default:
+      console.log(`🔔 Unhandled event type: ${event.type}`);
+  }
+
+  // 3. Acknowledge receipt of the event to Stripe
+  res.json({ received: true });
+});
+
+
 // Middleware
 app.use(express.static('.'));
 app.use(express.json());
@@ -219,43 +283,43 @@ function checkMissingFields(extractedData, userEmail) {
     }
     else if (field === 'first_name') {
       // Now lowercase 'first' instead of 'FIRST'
-      if (!extractedData.violator_information?.first || 
-          extractedData.violator_information.first.trim() === '') {
+      if (!extractedData.violator_information?.first ||
+        extractedData.violator_information.first.trim() === '') {
         missingFields.push('first_name');
       }
     }
     else if (field === 'middle_name') {
       // Now lowercase 'middle' instead of 'MIDDLE'
-      if (!extractedData.violator_information?.middle || 
-          extractedData.violator_information.middle.trim() === '') {
+      if (!extractedData.violator_information?.middle ||
+        extractedData.violator_information.middle.trim() === '') {
         missingFields.push('middle_name');
       }
     }
     else if (field === 'last_name') {
       // Now lowercase 'last_name' instead of 'LAST_NAME'
-      if (!extractedData.violator_information?.last_name || 
-          extractedData.violator_information.last_name.trim() === '') {
+      if (!extractedData.violator_information?.last_name ||
+        extractedData.violator_information.last_name.trim() === '') {
         missingFields.push('last_name');
       }
     }
     else if (field === 'phone_number') {
       // Now lowercase 'phone' instead of 'PHONE'
-      if (!extractedData.violator_information?.phone || 
-          extractedData.violator_information.phone.trim() === '') {
+      if (!extractedData.violator_information?.phone ||
+        extractedData.violator_information.phone.trim() === '') {
         missingFields.push('phone_number');
       }
     }
     else if (field === 'infraction_violation') {
       // Now lowercase 'citation' instead of 'CITATION'
-      if (!extractedData.violation?.citation || 
-          extractedData.violation.citation.trim() === '') {
+      if (!extractedData.violation?.citation ||
+        extractedData.violation.citation.trim() === '') {
         missingFields.push('infraction_violation');
       }
     }
     else if (field === 'county') {
       // Now lowercase 'county' instead of 'County'
-      if (!extractedData.ticket_header?.county || 
-          extractedData.ticket_header.county.trim() === '') {
+      if (!extractedData.ticket_header?.county ||
+        extractedData.ticket_header.county.trim() === '') {
         missingFields.push('county');
       }
     }
@@ -523,7 +587,7 @@ CRITICAL RULES:
 
 Now extract all data from the traffic ticket image.`;
 
-         const userPrompt = `Extract all data from this Texas traffic citation image and format it as JSON using the exact structure provided.`;
+          const userPrompt = `Extract all data from this Texas traffic citation image and format it as JSON using the exact structure provided.`;
 
           const response = await openai.chat.completions.create({
             model: "gpt-4o-mini",
@@ -695,7 +759,7 @@ app.post('/extract-data-from-url', async (req, res) => {
       console.log('🔄 Using REAL OpenAI API for URL extraction (PROD mode)');
 
       // Replace the current systemPrompt with this:
-  const systemPrompt = `You are an expert data extraction system for Texas traffic violation tickets. Extract EVERY FIELD from the ticket image and organize it into this EXACT JSON structure:
+      const systemPrompt = `You are an expert data extraction system for Texas traffic violation tickets. Extract EVERY FIELD from the ticket image and organize it into this EXACT JSON structure:
 
 {
   "ticket_header": {
@@ -785,7 +849,7 @@ CRITICAL RULES:
 
 Now extract all data from the traffic ticket image.`;
 
-         const userPrompt = `Extract all data from this Texas traffic citation image and format it as JSON using the exact structure provided.`;
+      const userPrompt = `Extract all data from this Texas traffic citation image and format it as JSON using the exact structure provided.`;
 
       const response = await openai.chat.completions.create({
         model: "gpt-4o-mini",
@@ -1206,6 +1270,76 @@ app.post('/submit-no-ticket-form', async (req, res) => {
     });
   }
 });
+
+// Endpoint: POST /api/create-payment-session
+app.post('/api/create-payment-session', async (req, res) => {
+  try {
+    const { sessionId, userEmail } = req.body;
+
+    // 1. VALIDATE SESSION IN FIRESTORE
+    const ticketRef = db.collection('tickets').doc(sessionId);
+    const ticketDoc = await ticketRef.get();
+
+    if (!ticketDoc.exists) {
+      return res.status(404).json({ error: 'Ticket session not found.' });
+    }
+
+    const ticketData = ticketDoc.data();
+    if (ticketData.paymentStatus === 'paid') {
+      return res.status(400).json({ error: 'Ticket already paid.' });
+    }
+   if (!['extracted', 'completed'].includes(ticketData.status)) {
+  // Ensure it's only payable if data has been submitted
+  return res.status(400).json({ error: 'Ticket not ready for payment.' });
+}
+
+    // 2. CREATE STRIPE CHECKOUT SESSION
+    // Price is set here. For sandbox, use a small test amount (e.g., $1.00 = 100 cents).
+    const stripeSession = await stripe.checkout.sessions.create({
+      payment_method_types: ['card'],
+      mode: 'payment',
+      line_items: [
+        {
+          price_data: {
+            currency: 'usd',
+            product_data: {
+              name: 'Traffic Ticket Defense Service',
+              description: `Defense for citation: ${ticketData.extractedData?.citation_number || 'N/A'}`,
+            },
+            // Use an environment variable for price, or hardcode 100 for testing $1.00
+            unit_amount: process.env.PRICE_IN_CENTS || 4999, // $49.99 or test amount
+          },
+          quantity: 1,
+        },
+      ],
+      customer_email: userEmail,
+      client_reference_id: sessionId, // The MOST IMPORTANT link to your Firestore document
+      metadata: {
+        firebaseSessionId: sessionId,
+        userId: ticketData.userId,
+      },
+      // Use your frontend URLs from environment variables
+      success_url: `${process.env.FRONTEND_BASE_URL}/payment-success?session_id={CHECKOUT_SESSION_ID}`,
+      cancel_url: `${process.env.FRONTEND_BASE_URL}/upload?session_id=${sessionId}`,
+    });
+
+    // 3. UPDATE FIRESTORE WITH PENDING PAYMENT
+    await ticketRef.update({
+      stripeCheckoutSessionId: stripeSession.id,
+      paymentStatus: 'pending',
+      lastUpdated: new Date(),
+    });
+
+    // 4. RETURN CHECKOUT URL TO FRONTEND
+    res.json({ url: stripeSession.url });
+
+  } catch (error) {
+    console.error('Payment session creation error:', error);
+    res.status(500).json({ error: 'Failed to create payment session.' });
+  }
+});
+
+
 
 // Error handling middleware
 app.use((error, req, res, next) => {

@@ -11,45 +11,92 @@ const { getFirestore } = require('firebase-admin/firestore');
 const MODE = 'prod'; // Change to 'prod' for real AI extraction
 
 // ✅ MOCK DATA EXTRACTION FUNCTION
+// ✅ MOCK DATA EXTRACTION FUNCTION
+// ✅ MOCK DATA EXTRACTION FUNCTION - UPDATED TO MATCH NEW STRUCTURE
 function mockDataExtraction() {
   console.log('🔄 Using MOCK DATA for extraction');
 
   return {
-    citation_number: "MOCK" + Math.random().toString().slice(2, 8),
-    issue_date: new Date().toLocaleDateString('en-US'),
-
-    // ✅ SOME FIELDS PRESENT (for testing)
-    first_name: "JOHN",
-    last_name: "DOE",
-
-    // ❌ MISSING FIELDS (for testing smart form)
-    // middle_name: "", // Missing - will trigger form
-    // phone_number: "", // Missing - will trigger form
-    // county: "", // Missing - will trigger form
-    // is_jp: "", // Missing - will trigger form
-
-    violation: {
-      citation: "Speeding in School Zone", // ✅ Has violation
-      alleged_speed: "44",
-      posted_speed: "30",
-      school_zone: "Yes"
+    ticket_header: {
+      county: "Bexar",
+      precinct: "3",
+      citation_number: "MOCK" + Math.random().toString().slice(2, 8),
+      issue_date_and_time: "09/19/2025 at 07:58 AM",
+      violation_date_and_time: "09/19/2025 at 07:58 AM"
     },
-    location_information: {
-      location: "1400 E BORGFELD DR"
+    
+    violator_information: {
+      last_name: "DOE",
+      first: "JOHN",
+      middle: "", // ✅ Missing - will trigger form
+      residence_address: "123 MAIN ST",
+      phone: "", // ✅ Missing - will trigger form
+      city: "SAN ANTONIO",
+      state: "TX",
+      zip_code: "78201",
+      inter_license_number: "DL123456",
+      dl_class: "C",
+      dl_state: "TX",
+      cdl: "No",
+      date_of_birth: "01/01/1980",
+      sex: "M",
+      race: "H",
+      height: "510",
+      weight: "180",
+      eye_color: "BRO",
+      hair_color: "BRO"
     },
+    
+    additional_information_business: {
+      parent_employer: "",
+      address: "",
+      phone: "",
+      city: "",
+      state: "",
+      zip_code: ""
+    },
+    
     vehicle_information: {
+      license_plate: "MOCK123",
+      state: "TX",
+      reg_exp: "0126",
+      color: "BLUE",
       make: "HONDA",
       model: "CIVIC",
+      type: "",
+      vin: "1HGCM82633A123456",
       year: "2022",
-      color: "BLUE",
-      license_plate: "MOCK123",
-      state: "TX"
+      c_w: "No",
+      maxiat: "No",
+      trailer_plate: "",
+      trailer_state: "",
+      dot_number: "",
+      towed: "No"
     },
-    violator_information: {
-      driver_license_number: "DL123456",
-      city: "SAN ANTONIO",
-      state: "TX"
-    }
+    
+    location_information: {
+      address: "1400 E BORGFELD DR",
+      direction_of_travel: "",
+      direction_of_turn: ""
+    },
+    
+    violation: {
+      citation: "Speeding in School Zone",
+      alleged_speed_mph: "44",
+      posted_speed_mph: "30",
+      case_no: "",
+      constr_zone_workers_present: "No",
+      school_zone: "Yes",
+      accident: "No",
+      knewrace: "No",
+      search: "No Search",
+      contraband: "",
+      additional_notes: "ATTENDED AND UNABLE TO VERIFY FINANCIAL RESPONSIBILITY"
+    },
+    
+    email: "", // Will be provided by user
+    is_jp: "", // Missing - will trigger form
+    precinct_number: "" // Missing but not required unless JP=Y
   };
 }
 
@@ -153,12 +200,12 @@ function getImageInfo(filePath, originalname) {
 function checkMissingFields(extractedData, userEmail) {
   const requiredFields = [
     'email',
-    'first_name',
-    'middle_name',
-    'last_name',
-    'infraction_violation',
-    'phone_number',
-    'county',
+    'first_name',  // This should now match `violator_information.first`
+    'middle_name', // This should now match `violator_information.middle`
+    'last_name',   // This should now match `violator_information.last_name`
+    'infraction_violation', // This should now match `violation.citation`
+    'phone_number', // This should now match `violator_information.phone`
+    'county',      // This should now match `ticket_header.county`
     'is_jp'
   ];
 
@@ -166,15 +213,50 @@ function checkMissingFields(extractedData, userEmail) {
 
   requiredFields.forEach(field => {
     if (field === 'email') {
-      // Use the email from Clerk auth
       if (!userEmail || userEmail.trim() === '') {
         missingFields.push('email');
       }
     }
+    else if (field === 'first_name') {
+      // Now lowercase 'first' instead of 'FIRST'
+      if (!extractedData.violator_information?.first || 
+          extractedData.violator_information.first.trim() === '') {
+        missingFields.push('first_name');
+      }
+    }
+    else if (field === 'middle_name') {
+      // Now lowercase 'middle' instead of 'MIDDLE'
+      if (!extractedData.violator_information?.middle || 
+          extractedData.violator_information.middle.trim() === '') {
+        missingFields.push('middle_name');
+      }
+    }
+    else if (field === 'last_name') {
+      // Now lowercase 'last_name' instead of 'LAST_NAME'
+      if (!extractedData.violator_information?.last_name || 
+          extractedData.violator_information.last_name.trim() === '') {
+        missingFields.push('last_name');
+      }
+    }
+    else if (field === 'phone_number') {
+      // Now lowercase 'phone' instead of 'PHONE'
+      if (!extractedData.violator_information?.phone || 
+          extractedData.violator_information.phone.trim() === '') {
+        missingFields.push('phone_number');
+      }
+    }
     else if (field === 'infraction_violation') {
-      // Check violation citation
-      if (!extractedData.violation?.citation) {
+      // Now lowercase 'citation' instead of 'CITATION'
+      if (!extractedData.violation?.citation || 
+          extractedData.violation.citation.trim() === '') {
         missingFields.push('infraction_violation');
+      }
+    }
+    else if (field === 'county') {
+      // Now lowercase 'county' instead of 'County'
+      if (!extractedData.ticket_header?.county || 
+          extractedData.ticket_header.county.trim() === '') {
+        missingFields.push('county');
       }
     }
     else if (!extractedData[field] || extractedData[field].toString().trim() === '') {
@@ -183,7 +265,8 @@ function checkMissingFields(extractedData, userEmail) {
   });
 
   // Special check: If JP=Y, precinct is required
-  if (extractedData.is_jp === 'Y' && (!extractedData.precinct_number || extractedData.precinct_number.trim() === '')) {
+  const isJp = extractedData.is_jp || "";
+  if (isJp === 'Y' && (!extractedData.precinct_number || extractedData.precinct_number.trim() === '')) {
     missingFields.push('precinct_number');
   }
 
@@ -349,28 +432,98 @@ app.post('/extract-data', upload.array('images', 5), async (req, res) => {
           console.log('🔄 Using REAL OpenAI API (PROD mode)');
 
           // Prepare prompt for structured data extraction
-          const systemPrompt = `You are an expert data extraction AI. Your job is to analyze images and extract structured data from them.
 
-          Please extract all readable text and data from the image and format it as a JSON object with consistent field names. 
+          const systemPrompt = `You are an expert data extraction system for Texas traffic violation tickets. Extract EVERY FIELD from the ticket image and organize it into this EXACT JSON structure:
 
-          For documents like forms, tickets, receipts, or any structured document, please organize the data logically with clear field names.
+{
+  "ticket_header": {
+    "county": "[County name]",
+    "precinct": "[Precinct number]", 
+    "citation_number": "[Citation number]",
+    "issue_date_and_time": "[Issue date and time]",
+    "violation_date_and_time": "[Violation date and time]"
+  },
+  
+  "violator_information": {
+    "last_name": "[Last name]",
+    "first": "[First name]",
+    "middle": "[Middle name]",
+    "residence_address": "[Street address]",
+    "phone": "[Phone number or empty]",
+    "city": "[City]", 
+    "state": "[State]",
+    "zip_code": "[ZIP code]",
+    "inter_license_number": "[Driver license number]",
+    "dl_class": "[License class]",
+    "dl_state": "[License state]",
+    "cdl": "[Yes/No]",
+    "date_of_birth": "[Date of birth]",
+    "sex": "[M/F]",
+    "race": "[Race code]", 
+    "height": "[Height in inches]",
+    "weight": "[Weight in lbs]",
+    "eye_color": "[Eye color]",
+    "hair_color": "[Hair color]"
+  },
+  
+  "additional_information_business": {
+    "parent_employer": "[Usually 'PARENT / EMPLOYER' or empty]",
+    "address": "[Address or empty]",
+    "phone": "[Phone or empty]",
+    "city": "[City or empty]",
+    "state": "[State or empty]",
+    "zip_code": "[ZIP or empty]"
+  },
+  
+  "vehicle_information": {
+    "license_plate": "[License plate]",
+    "state": "[State]",
+    "reg_exp": "[Registration expiration]",
+    "color": "[Vehicle color]",
+    "make": "[Make]",
+    "model": "[Model]",
+    "type": "[Vehicle type or empty]",
+    "vin": "[VIN number]",
+    "year": "[Year]",
+    "c_w": "[Yes/No]",
+    "maxiat": "[Yes/No]",
+    "trailer_plate": "[Trailer plate or empty]",
+    "trailer_state": "[Trailer state or empty]",
+    "dot_number": "[DOT number or empty]",
+    "towed": "[Yes/No]"
+  },
+  
+  "location_information": {
+    "address": "[Violation location address]",
+    "direction_of_travel": "[Direction or empty]",
+    "direction_of_turn": "[Direction or empty]"
+  },
+  
+  "violation": {
+    "citation": "[Violation description]",
+    "alleged_speed_mph": "[Speed]",
+    "posted_speed_mph": "[Speed limit]",
+    "case_no": "[Case number or empty]",
+    "constr_zone_workers_present": "[Yes/No]",
+    "school_zone": "[Yes/No]",
+    "accident": "[Yes/No]",
+    "knewrace": "[Yes/No]",
+    "search": "[Search details]",
+    "contraband": "[Contraband or empty]",
+    "additional_notes": "[Any additional text]"
+  }
+}
 
-          Common fields to look for and standardize:
-          - Names: firstname, middlename, lastname, fullname
-          - Dates: date, issuedate, duedate, birthdate
-          - Addresses: address, street, city, state, zipcode
-          - IDs: id, ticketno, licenseno, caseno
-          - Amounts: amount, fine, fee, total
-          - Vehicle info: make, model, year, color, plate, vin
-          - Locations: location, intersection, zone
-          - Times: time, datetime
-          - Other relevant fields based on document type
+CRITICAL RULES:
+1. Use EXACTLY these lowercase field names (snake_case)
+2. All fields MUST be included even if empty
+3. Map data from ticket to matching fields
+4. Preserve original text from ticket
+5. Return ONLY JSON, no explanations
 
-          Always return valid JSON with meaningful field names. If a field is not present, omit it from the JSON rather than including null values.
+Now extract all data from the traffic ticket image.`;
 
-          Also provide a brief analysis of what type of document this appears to be and what information was extracted.`;
-
-          const userPrompt = `Please analyze this image and extract all structured data from it. Return the data in a clean JSON format with consistent field names, and provide a brief analysis of the document type.`;
+         const userPrompt = `Extract all data from this Texas traffic citation image and format it as JSON using the exact structure provided.`;
 
           const response = await openai.chat.completions.create({
             model: "gpt-4o-mini",
@@ -396,7 +549,7 @@ app.post('/extract-data', upload.array('images', 5), async (req, res) => {
                 ]
               }
             ],
-            max_tokens: 1500,
+            max_tokens: 2000,
             temperature: 0.1
           });
 
@@ -541,28 +694,98 @@ app.post('/extract-data-from-url', async (req, res) => {
       // USE REAL OPENAI API
       console.log('🔄 Using REAL OpenAI API for URL extraction (PROD mode)');
 
-      const systemPrompt = `You are an expert data extraction AI. Your job is to analyze images and extract structured data from them.
+      // Replace the current systemPrompt with this:
+  const systemPrompt = `You are an expert data extraction system for Texas traffic violation tickets. Extract EVERY FIELD from the ticket image and organize it into this EXACT JSON structure:
 
-      Please extract all readable text and data from the image and format it as a JSON object with consistent field names. 
+{
+  "ticket_header": {
+    "county": "[County name]",
+    "precinct": "[Precinct number]", 
+    "citation_number": "[Citation number]",
+    "issue_date_and_time": "[Issue date and time]",
+    "violation_date_and_time": "[Violation date and time]"
+  },
+  
+  "violator_information": {
+    "last_name": "[Last name]",
+    "first": "[First name]",
+    "middle": "[Middle name]",
+    "residence_address": "[Street address]",
+    "phone": "[Phone number or empty]",
+    "city": "[City]", 
+    "state": "[State]",
+    "zip_code": "[ZIP code]",
+    "inter_license_number": "[Driver license number]",
+    "dl_class": "[License class]",
+    "dl_state": "[License state]",
+    "cdl": "[Yes/No]",
+    "date_of_birth": "[Date of birth]",
+    "sex": "[M/F]",
+    "race": "[Race code]", 
+    "height": "[Height in inches]",
+    "weight": "[Weight in lbs]",
+    "eye_color": "[Eye color]",
+    "hair_color": "[Hair color]"
+  },
+  
+  "additional_information_business": {
+    "parent_employer": "[Usually 'PARENT / EMPLOYER' or empty]",
+    "address": "[Address or empty]",
+    "phone": "[Phone or empty]",
+    "city": "[City or empty]",
+    "state": "[State or empty]",
+    "zip_code": "[ZIP or empty]"
+  },
+  
+  "vehicle_information": {
+    "license_plate": "[License plate]",
+    "state": "[State]",
+    "reg_exp": "[Registration expiration]",
+    "color": "[Vehicle color]",
+    "make": "[Make]",
+    "model": "[Model]",
+    "type": "[Vehicle type or empty]",
+    "vin": "[VIN number]",
+    "year": "[Year]",
+    "c_w": "[Yes/No]",
+    "maxiat": "[Yes/No]",
+    "trailer_plate": "[Trailer plate or empty]",
+    "trailer_state": "[Trailer state or empty]",
+    "dot_number": "[DOT number or empty]",
+    "towed": "[Yes/No]"
+  },
+  
+  "location_information": {
+    "address": "[Violation location address]",
+    "direction_of_travel": "[Direction or empty]",
+    "direction_of_turn": "[Direction or empty]"
+  },
+  
+  "violation": {
+    "citation": "[Violation description]",
+    "alleged_speed_mph": "[Speed]",
+    "posted_speed_mph": "[Speed limit]",
+    "case_no": "[Case number or empty]",
+    "constr_zone_workers_present": "[Yes/No]",
+    "school_zone": "[Yes/No]",
+    "accident": "[Yes/No]",
+    "knewrace": "[Yes/No]",
+    "search": "[Search details]",
+    "contraband": "[Contraband or empty]",
+    "additional_notes": "[Any additional text]"
+  }
+}
 
-      For documents like forms, tickets, receipts, or any structured document, please organize the data logically with clear field names.
+CRITICAL RULES:
+1. Use EXACTLY these lowercase field names (snake_case)
+2. All fields MUST be included even if empty
+3. Map data from ticket to matching fields
+4. Preserve original text from ticket
+5. Return ONLY JSON, no explanations
 
-      Common fields to look for and standardize:
-      - Names: firstname, middlename, lastname, fullname
-      - Dates: date, issuedate, duedate, birthdate
-      - Addresses: address, street, city, state, zipcode
-      - IDs: id, ticketno, licenseno, caseno
-      - Amounts: amount, fine, fee, total
-      - Vehicle info: make, model, year, color, plate, vin
-      - Locations: location, intersection, zone
-      - Times: time, datetime
-      - Other relevant fields based on document type
+Now extract all data from the traffic ticket image.`;
 
-      Always return valid JSON with meaningful field names. If a field is not present, omit it from the JSON rather than including null values.
-
-      Also provide a brief analysis of what type of document this appears to be and what information was extracted.`;
-
-      const userPrompt = `Please analyze this image and extract all structured data from it. Return the data in a clean JSON format with consistent field names, and provide a brief analysis of the document type.`;
+         const userPrompt = `Extract all data from this Texas traffic citation image and format it as JSON using the exact structure provided.`;
 
       const response = await openai.chat.completions.create({
         model: "gpt-4o-mini",
@@ -726,7 +949,7 @@ app.get('/check-ticket/:sessionId', async (req, res) => {
     const extractedData = ticketData.extractedData || {};
 
     // Check missing fields (same logic as before)
-    const missingFields = checkMissingFields(extractedData);
+    const missingFields = checkMissingFields(extractedData, ticketData.email || '');
 
     res.json({
       exists: true,
