@@ -8,6 +8,7 @@ const { initializeApp, cert } = require('firebase-admin/app');
 const { getFirestore, FieldValue } = require('firebase-admin/firestore');
 const Stripe = require('stripe');
 const stripe = new Stripe(process.env.STRIPE_SECRET_KEY);
+const fetch = require('node-fetch');
 
 // ✅ SIMPLE MODE SWITCH - Change this value
 const MODE = 'prod'; // Change to 'prod' for real AI extraction
@@ -178,9 +179,10 @@ const upload = multer({
 
 // Endpoint: POST /api/stripe-webhook
 // This endpoint must use raw body for signature verification
+// Endpoint: POST /api/stripe-webhook
 app.post('/api/stripe-webhook', express.raw({ type: 'application/json' }), async (req, res) => {
   const sig = req.headers['stripe-signature'];
-  const webhookSecret = process.env.STRIPE_WEBHOOK_SECRET; // Different for test vs live
+  const webhookSecret = process.env.STRIPE_WEBHOOK_SECRET;
 
   let event;
   try {
@@ -196,39 +198,19 @@ app.post('/api/stripe-webhook', express.raw({ type: 'application/json' }), async
   // 2. Handle the specific event
   switch (event.type) {
     case 'checkout.session.completed':
-      const session = event.data.object;
-      const firebaseSessionId = session.client_reference_id; // This links to your ticket
+      await handlePaymentSuccess(event.data.object);
+      break;
 
-      console.log(`💰 Payment successful for Firestore session: ${firebaseSessionId}`);
-
-      try {
-        const ticketRef = db.collection('tickets').doc(firebaseSessionId);
-        await ticketRef.update({
-          paymentStatus: 'paid',
-          caseStatus: 'submitted_for_review', // Your next business logic step
-          paidAt: new Date(),
-          stripePaymentIntentId: session.payment_intent,
-          lastUpdated: new Date(),
-          statusHistory: FieldValue.arrayUnion({
-            status: 'payment_received',
-            timestamp: new Date(),
-            note: 'Customer completed payment via Stripe.',
-          }),
-        });
-        console.log(`✅ Firestore updated for session: ${firebaseSessionId}`);
-      } catch (firestoreError) {
-        console.error('❌ Firestore update failed:', firestoreError);
-        // Consider alerting yourself here
-      }
+    case 'payment_intent.payment_failed':
+      await handlePaymentFailed(event.data.object);
       break;
 
     case 'checkout.session.expired':
       // Optional: Handle expired sessions
       const expiredSession = event.data.object;
-      // You could update Firestore to `paymentStatus: 'expired'`
+      console.log(`⌛ Session expired: ${expiredSession.id}`);
       break;
 
-    // Add other events you want to handle, like payment failure
     default:
       console.log(`🔔 Unhandled event type: ${event.type}`);
   }
@@ -236,6 +218,240 @@ app.post('/api/stripe-webhook', express.raw({ type: 'application/json' }), async
   // 3. Acknowledge receipt of the event to Stripe
   res.json({ received: true });
 });
+
+// ============ HELPER FUNCTIONS ============
+
+/**
+ * Handle successful payment
+ */
+async function handlePaymentSuccess(session) {
+  const firebaseSessionId = session.client_reference_id;
+  console.log(`💰 Payment successful for Firestore session: ${firebaseSessionId}`);
+
+  try {
+    // Get ticket data from Firestore
+    const ticketRef = db.collection('tickets').doc(firebaseSessionId);
+    const ticketDoc = await ticketRef.get();
+    
+    if (!ticketDoc.exists) {
+      console.error(`❌ Ticket ${firebaseSessionId} not found in Firestore`);
+      return;
+    }
+    
+    const ticketData = ticketDoc.data();
+    const customerEmail = session.customer_email || ticketData.email;
+
+    // Update Firestore
+    await ticketRef.update({
+      paymentStatus: 'paid',
+      caseStatus: 'submitted_for_review',
+      paidAt: new Date(),
+      stripePaymentIntentId: session.payment_intent,
+      stripeSessionId: session.id,
+      lastUpdated: new Date(),
+      statusHistory: FieldValue.arrayUnion({
+        status: 'payment_received',
+        timestamp: new Date(),
+        note: 'Customer completed payment via Stripe.',
+      }),
+    });
+    
+    console.log(`✅ Firestore updated for session: ${firebaseSessionId}`);
+
+    // ✅ SEND PAYMENT CONFIRMATION EMAIL
+    if (customerEmail) {
+      await sendPaymentConfirmationEmail({
+        to: customerEmail,
+        name: ticketData.extractedData?.violator_information?.first || "Customer",
+        amount: (session.amount_total / 100).toFixed(2),
+        ticketId: firebaseSessionId,
+        paymentId: session.payment_intent
+      });
+    } else {
+      console.log('⚠️ No customer email found for payment confirmation');
+    }
+
+  } catch (firestoreError) {
+    console.error('❌ Firestore update failed:', firestoreError);
+  }
+}
+
+/**
+ * Handle failed payment
+ */
+async function handlePaymentFailed(paymentIntent) {
+  console.log(`❌ Payment failed: ${paymentIntent.id}`);
+  
+  const customerEmail = paymentIntent.receipt_email;
+  
+  if (customerEmail) {
+    await sendPaymentFailedEmail({
+      to: customerEmail,
+      name: paymentIntent.metadata?.customer_name || "Customer",
+      error: paymentIntent.last_payment_error?.message || "Payment was declined",
+      retryLink: `${process.env.FRONTEND_URL || 'https://yourdomain.com'}/payment-retry`
+    });
+  } else {
+    console.log('⚠️ No customer email found for payment failure notification');
+  }
+}
+
+/**
+ * Send payment confirmation email using Brevo
+ */
+async function sendPaymentConfirmationEmail({ to, name, amount, ticketId, paymentId }) {
+  try {
+    if (!process.env.BREVO_API_KEY) {
+      console.log('⚠️ BREVO_API_KEY not set, skipping email');
+      return;
+    }
+
+    const response = await fetch('https://api.brevo.com/v3/smtp/email', {
+      method: 'POST',
+      headers: {
+        'api-key': process.env.BREVO_API_KEY,
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify({
+        sender: {
+          name: process.env.BREVO_SENDER_NAME || 'Ticket System',
+          email: process.env.BREVO_SENDER_EMAIL || 'noreply@ticketsystem.com'
+        },
+        to: [{ email: to, name: name }],
+        subject: `Payment Confirmed - Ticket #${ticketId}`,
+        htmlContent: `
+          <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">
+            <h2 style="color: #4CAF50;">Payment Confirmed!</h2>
+            <p>Dear ${name},</p>
+            <p>Your payment of <strong>$${amount}</strong> has been successfully processed.</p>
+            
+            <div style="background: #f5f5f5; padding: 15px; border-radius: 5px; margin: 20px 0;">
+              <p><strong>Ticket ID:</strong> ${ticketId}</p>
+              <p><strong>Payment ID:</strong> ${paymentId}</p>
+              <p><strong>Date:</strong> ${new Date().toLocaleDateString()}</p>
+              <p><strong>Status:</strong> <span style="color: #4CAF50;">Paid ✓</span></p>
+            </div>
+            
+            <p>Our legal team will now review your case. You'll receive updates on your case status via email.</p>
+            
+            <p style="margin-top: 30px;">
+              <strong>Next Steps:</strong><br>
+              1. Case review by legal team (24-48 hours)<br>
+              2. You'll receive case status updates<br>
+              3. Our team may contact you if additional information is needed
+            </p>
+            
+            <p>Thank you for choosing our service!</p>
+            
+            <hr style="margin: 30px 0;">
+            <p style="font-size: 12px; color: #666;">
+              If you have any questions, contact us at support@ticketsystem.com<br>
+              This is an automated message, please do not reply.
+            </p>
+          </div>
+        `,
+        tags: ['payment-confirmation', 'ticket-system']
+      })
+    });
+
+    if (response.ok) {
+      console.log(`✅ Payment confirmation email sent to ${to}`);
+      
+      // Log email in Firestore
+      try {
+        await db.collection('email_logs').add({
+          to: to,
+          type: 'payment_confirmation',
+          ticketId: ticketId,
+          paymentId: paymentId,
+          sentAt: new Date(),
+          status: 'sent'
+        });
+      } catch (logError) {
+        console.log('⚠️ Could not log email in Firestore:', logError.message);
+      }
+    } else {
+      console.error(`❌ Failed to send email: ${response.status}`);
+    }
+  } catch (error) {
+    console.error('❌ Email sending error:', error.message);
+  }
+}
+
+/**
+ * Send payment failure email using Brevo
+ */
+async function sendPaymentFailedEmail({ to, name, error, retryLink }) {
+  try {
+    if (!process.env.BREVO_API_KEY) {
+      console.log('⚠️ BREVO_API_KEY not set, skipping email');
+      return;
+    }
+
+    const response = await fetch('https://api.brevo.com/v3/smtp/email', {
+      method: 'POST',
+      headers: {
+        'api-key': process.env.BREVO_API_KEY,
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify({
+        sender: {
+          name: process.env.BREVO_SENDER_NAME || 'Ticket System',
+          email: process.env.BREVO_SENDER_EMAIL || 'noreply@ticketsystem.com'
+        },
+        to: [{ email: to, name: name }],
+        subject: 'Payment Issue - Ticket Assistance',
+        htmlContent: `
+          <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">
+            <h2 style="color: #f44336;">Payment Issue</h2>
+            <p>Dear ${name},</p>
+            <p>We were unable to process your payment for your ticket assistance.</p>
+            
+            <div style="background: #ffebee; padding: 15px; border-radius: 5px; margin: 20px 0;">
+              <p><strong>Issue:</strong> ${error}</p>
+              <p><strong>Date:</strong> ${new Date().toLocaleDateString()}</p>
+              <p><strong>Status:</strong> <span style="color: #f44336;">Payment Failed</span></p>
+            </div>
+            
+            <p>Please try again with a different payment method:</p>
+            <p>
+              <a href="${retryLink}" 
+                 style="background-color: #4CAF50; color: white; padding: 12px 25px; 
+                        text-decoration: none; border-radius: 5px; display: inline-block;">
+                Retry Payment
+              </a>
+            </p>
+            
+            <p style="margin-top: 20px;">
+              <strong>Common Solutions:</strong><br>
+              1. Check your card details are correct<br>
+              2. Ensure you have sufficient funds<br>
+              3. Try a different card or payment method<br>
+              4. Contact your bank if the card is blocked
+            </p>
+            
+            <p>If you continue to experience issues, please contact our support team.</p>
+            
+            <hr style="margin: 30px 0;">
+            <p style="font-size: 12px; color: #666;">
+              Need help? Contact support at support@ticketsystem.com or call 1-800-123-4567<br>
+              This is an automated message, please do not reply.
+            </p>
+          </div>
+        `,
+        tags: ['payment-failed', 'ticket-system']
+      })
+    });
+
+    if (response.ok) {
+      console.log(`⚠️ Payment failure email sent to ${to}`);
+    } else {
+      console.error(`❌ Failed to send failure email: ${response.status}`);
+    }
+  } catch (error) {
+    console.error('❌ Failure email sending error:', error.message);
+  }
+}
 
 
 // Middleware
@@ -1288,10 +1504,10 @@ app.post('/api/create-payment-session', async (req, res) => {
     if (ticketData.paymentStatus === 'paid') {
       return res.status(400).json({ error: 'Ticket already paid.' });
     }
-   if (!['extracted', 'completed'].includes(ticketData.status)) {
-  // Ensure it's only payable if data has been submitted
-  return res.status(400).json({ error: 'Ticket not ready for payment.' });
-}
+    if (!['extracted', 'completed'].includes(ticketData.status)) {
+      // Ensure it's only payable if data has been submitted
+      return res.status(400).json({ error: 'Ticket not ready for payment.' });
+    }
 
     // 2. CREATE STRIPE CHECKOUT SESSION
     // Price is set here. For sandbox, use a small test amount (e.g., $1.00 = 100 cents).
