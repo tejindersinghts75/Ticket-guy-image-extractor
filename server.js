@@ -550,7 +550,38 @@ async function handlePaymentFailed(session) {
   }
 }
 
+/**
+ * Handle immediate payment failures (PaymentIntent object)
+ */
+async function handlePaymentIntentFailed(paymentIntent) {
+  console.log('💰 PaymentIntent failed event received:', paymentIntent.id);
+  console.log('🔍 Looking for associated Checkout Session...');
 
+  try {
+    // 1. Find the Checkout Session linked to this PaymentIntent
+    const sessions = await stripe.checkout.sessions.list({
+      payment_intent: paymentIntent.id,
+      limit: 1
+    });
+    
+    if (sessions.data.length === 0) {
+      console.error('❌ No Checkout Session found for PaymentIntent:', paymentIntent.id);
+      return;
+    }
+    
+    const session = sessions.data[0];
+    console.log('✅ Found associated Checkout Session:', session.id);
+    console.log('📧 Customer email from session:', session.customer_email);
+    console.log('🔗 Client reference ID:', session.client_reference_id);
+    
+    // 2. Now call your existing handlePaymentFailed with the session
+    await handlePaymentFailed(session);
+    
+  } catch (error) {
+    console.error('❌ Error in handlePaymentIntentFailed:', error.message);
+    console.error('Stack trace:', error.stack);
+  }
+}
 
 // Middleware
 app.use(express.static('.'));
