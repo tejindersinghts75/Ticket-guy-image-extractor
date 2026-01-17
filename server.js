@@ -246,8 +246,14 @@ app.post('/api/stripe-webhook', express.raw({ type: 'application/json' }), async
     
   // ADD THIS - For immediate payment failures
   case 'payment_intent.payment_failed':
-    await handlePaymentIntentFailed(event.data.object);
-    break;
+  console.log('🔍 PAYMENT INTENT FAILED EVENT DETAILS:', {
+    paymentIntentId: event.data.object.id,
+    metadata: event.data.object.metadata,
+    receipt_email: event.data.object.receipt_email,
+    billing_details_email: event.data.object.billing_details?.email
+  });
+  await handlePaymentIntentFailed(event.data.object);
+  break;
 
     case 'checkout.session.expired':
       // Optional: Handle expired sessions
@@ -566,16 +572,44 @@ async function handlePaymentFailed(session) {
 /**
  * Handle immediate payment failures (PaymentIntent object)
  */
+/**
+ * Handle immediate payment failures (PaymentIntent object)
+ */
 async function handlePaymentIntentFailed(paymentIntent) {
   console.log('💰 PaymentIntent failed event received:', paymentIntent.id);
+  console.log('🔍 PaymentIntent metadata:', paymentIntent.metadata);
+  
+  // 1. Check if metadata has firebaseSessionId FIRST
+  const firebaseSessionId = paymentIntent.metadata?.firebaseSessionId;
+  
+  if (firebaseSessionId) {
+    console.log('✅ Found firebaseSessionId in metadata:', firebaseSessionId);
+    
+    // Create a mock session object with the metadata
+    const mockSession = {
+      id: `pi_${paymentIntent.id}`,  // Use payment intent ID as session ID
+      client_reference_id: firebaseSessionId,
+      customer_email: paymentIntent.receipt_email || 
+                     paymentIntent.metadata?.customer_email,
+      payment_intent: paymentIntent.id,
+      metadata: paymentIntent.metadata
+    };
+    
+    console.log('🔍 Mock session created:', mockSession);
+    await handlePaymentFailed(mockSession);
+    return;  // IMPORTANT: Return here!
+  }
+  
   console.log('🔍 Looking for associated Checkout Session...');
 
   try {
-    // 1. Find the Checkout Session linked to this PaymentIntent
+    // 2. Try to find Checkout Session
     const sessions = await stripe.checkout.sessions.list({
       payment_intent: paymentIntent.id,
       limit: 1
     });
+    
+    console.log('🔍 Found sessions:', sessions.data.length);
     
     if (sessions.data.length === 0) {
       console.error('❌ No Checkout Session found for PaymentIntent:', paymentIntent.id);
@@ -587,7 +621,7 @@ async function handlePaymentIntentFailed(paymentIntent) {
     console.log('📧 Customer email from session:', session.customer_email);
     console.log('🔗 Client reference ID:', session.client_reference_id);
     
-    // 2. Now call your existing handlePaymentFailed with the session
+    // 3. Now call your existing handlePaymentFailed with the session
     await handlePaymentFailed(session);
     
   } catch (error) {
@@ -1676,6 +1710,12 @@ app.post('/api/create-payment-session', async (req, res) => {
         firebaseSessionId: sessionId,
         userId: ticketData.userId,
       },
+      payment_intent_data: {
+    metadata: {
+      firebaseSessionId: sessionId,  // ✅ EXPLICITLY set on PaymentIntent
+      userId: ticketData.userId,
+    }
+  },
       // Use your frontend URLs from environment variables
       success_url: `${process.env.FRONTEND_BASE_URL}/payment-success?session_id={CHECKOUT_SESSION_ID}`,
       cancel_url: `${process.env.FRONTEND_BASE_URL}/upload?session_id=${sessionId}`,
