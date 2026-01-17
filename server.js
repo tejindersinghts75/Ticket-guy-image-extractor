@@ -218,7 +218,16 @@ app.post('/api/stripe-webhook', express.raw({ type: 'application/json' }), async
     return res.status(400).send(`Webhook Error: ${err.message}`);
   }
 
+    // ✅ ADD DEBUG LOG HERE
   console.log(`✅ Received Stripe event: ${event.type}`);
+  console.log('🔍 EVENT DETAILS:', {
+    type: event.type,
+    sessionId: event.data.object?.id,
+    clientRefId: event.data.object?.client_reference_id,
+    customerEmail: event.data.object?.customer_email,
+    paymentIntent: event.data.object?.payment_intent,
+    paymentStatus: event.data.object?.payment_status
+  });
 
   // 2. Handle the specific event
   switch (event.type) {
