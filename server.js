@@ -8,7 +8,6 @@ const { initializeApp, cert } = require('firebase-admin/app');
 const { getFirestore, FieldValue } = require('firebase-admin/firestore');
 const Stripe = require('stripe');
 const stripe = new Stripe(process.env.STRIPE_SECRET_KEY);
-const fetch = require('node-fetch');
 
 // ✅ SIMPLE MODE SWITCH - Change this value
 const MODE = 'prod'; // Change to 'prod' for real AI extraction
@@ -176,38 +175,12 @@ const upload = multer({
     }
   }
 });
-/**
- * Create admin alert for failed payments
- */
-async function createAdminAlertForFailedPayment(session) { // <-- Change parameter name
-  try {
-    if (!db) return;
-    
-    await db.collection('admin_alerts').add({
-      type: 'payment_failed',
-      timestamp: new Date(),
-      caseId: session.client_reference_id || 'Unknown', // <-- Use session field
-      clientEmail: session.customer_email, // <-- Use session field
-      stripeSessionId: session.id, // <-- Changed from paymentIntentId
-      // amount: (session.amount_total / 100).toFixed(2), // Optional: Use if needed
-      currency: session.currency,
-      error: 'Payment failed at checkout', // Generic or parse from last_payment_error if available
-      status: 'pending',
-      handled: false,
-      createdAt: new Date()
-    });
-    
-    console.log(`⚠️ Admin alert created for failed checkout session: ${session.id}`);
-  } catch (error) {
-    console.error('❌ Failed to create admin alert:', error.message);
-  }
-}
+
 // Endpoint: POST /api/stripe-webhook
 // This endpoint must use raw body for signature verification
-// Endpoint: POST /api/stripe-webhook
 app.post('/api/stripe-webhook', express.raw({ type: 'application/json' }), async (req, res) => {
   const sig = req.headers['stripe-signature'];
-  const webhookSecret = process.env.STRIPE_WEBHOOK_SECRET;
+  const webhookSecret = process.env.STRIPE_WEBHOOK_SECRET; // Different for test vs live
 
   let event;
   try {
@@ -218,49 +191,44 @@ app.post('/api/stripe-webhook', express.raw({ type: 'application/json' }), async
     return res.status(400).send(`Webhook Error: ${err.message}`);
   }
 
-    // ✅ ADD DEBUG LOG HERE
   console.log(`✅ Received Stripe event: ${event.type}`);
-  console.log('🔍 EVENT DETAILS:', {
-    type: event.type,
-    sessionId: event.data.object?.id,
-    clientRefId: event.data.object?.client_reference_id,
-    customerEmail: event.data.object?.customer_email,
-    paymentIntent: event.data.object?.payment_intent,
-    paymentStatus: event.data.object?.payment_status
-  });
 
   // 2. Handle the specific event
   switch (event.type) {
-   case 'checkout.session.completed':
-    const session = event.data.object;
-    if (session.payment_status === 'paid') {
-      await handlePaymentSuccess(session);
-    }
-    break;
-    
-  // ADD THIS - For async payment failures
-  case 'checkout.session.async_payment_failed':
-    const failedSession = event.data.object;
-    await handlePaymentFailed(failedSession);
-    break;
-    
-  // ADD THIS - For immediate payment failures
-  case 'payment_intent.payment_failed':
-  console.log('🔍 PAYMENT INTENT FAILED EVENT DETAILS:', {
-    paymentIntentId: event.data.object.id,
-    metadata: event.data.object.metadata,
-    receipt_email: event.data.object.receipt_email,
-    billing_details_email: event.data.object.billing_details?.email
-  });
-  await handlePaymentIntentFailed(event.data.object);
-  break;
+    case 'checkout.session.completed':
+      const session = event.data.object;
+      const firebaseSessionId = session.client_reference_id; // This links to your ticket
+
+      console.log(`💰 Payment successful for Firestore session: ${firebaseSessionId}`);
+
+      try {
+        const ticketRef = db.collection('tickets').doc(firebaseSessionId);
+        await ticketRef.update({
+          paymentStatus: 'paid',
+          caseStatus: 'submitted_for_review', // Your next business logic step
+          paidAt: new Date(),
+          stripePaymentIntentId: session.payment_intent,
+          lastUpdated: new Date(),
+          statusHistory: FieldValue.arrayUnion({
+            status: 'payment_received',
+            timestamp: new Date(),
+            note: 'Customer completed payment via Stripe.',
+          }),
+        });
+        console.log(`✅ Firestore updated for session: ${firebaseSessionId}`);
+      } catch (firestoreError) {
+        console.error('❌ Firestore update failed:', firestoreError);
+        // Consider alerting yourself here
+      }
+      break;
 
     case 'checkout.session.expired':
       // Optional: Handle expired sessions
       const expiredSession = event.data.object;
-      console.log(`⌛ Session expired: ${expiredSession.id}`);
+      // You could update Firestore to `paymentStatus: 'expired'`
       break;
 
+    // Add other events you want to handle, like payment failure
     default:
       console.log(`🔔 Unhandled event type: ${event.type}`);
   }
@@ -268,389 +236,6 @@ app.post('/api/stripe-webhook', express.raw({ type: 'application/json' }), async
   // 3. Acknowledge receipt of the event to Stripe
   res.json({ received: true });
 });
-
-// ============ HELPER FUNCTIONS ============
-// ============ UPDATED PAYMENT EMAIL FUNCTIONS ============
-
-/**
- * Send payment success email (TG_PAYMENT_PAID template)
- */
-async function sendPaymentSuccessEmail({ to, name, case_id, citation_number, county, court_name }) {
-  try {
-    if (!process.env.BREVO_API_KEY) {
-      console.log('⚠️ BREVO_API_KEY not set, skipping email');
-      return;
-    }
-
-   // const portalUrl = `${process.env.PORTAL_BASE_URL}/case/${case_id}`;
-   const portalUrl = `${process.env.PORTAL_BASE_URL}`;
-    const response = await fetch('https://api.brevo.com/v3/smtp/email', {
-      method: 'POST',
-      headers: {
-        'api-key': process.env.BREVO_API_KEY,
-        'Content-Type': 'application/json'
-      },
-      body: JSON.stringify({
-        sender: {
-          name: 'Ticket Guys',
-          email: process.env.BREVO_SENDER_EMAIL || 'noreply@texasticketguys.com'
-        },
-        to: [{ email: to, name: name }],
-        subject: 'Payment Received - Your Case is Active | Ticket Guys',
-        htmlContent: `
-          <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; line-height: 1.6;">
-            <p>Hi ${name},</p>
-            
-            <p><strong>Payment received</strong> — your Ticket Guys case is now active.</p>
-            
-            <div style="background: #f8f9fa; padding: 15px; border-left: 4px solid #4CAF50; margin: 20px 0;">
-              <p><strong>Case ID:</strong> ${case_id}</p>
-              <p><strong>Citation:</strong> ${citation_number}</p>
-              <p><strong>County/Court:</strong> ${county} — ${court_name || 'Local Court'}</p>
-            </div>
-            
-            <p><strong>What happens next:</strong></p>
-            <ul>
-              <li>We review your citation details</li>
-              <li>We begin the next steps for your case</li>
-              <li>You'll receive automatic updates when your case status changes</li>
-            </ul>
-            
-            <p style="margin: 25px 0;">
-              <a href="${portalUrl}" 
-                 style="background-color: #4CAF50; color: white; padding: 12px 24px; 
-                        text-decoration: none; border-radius: 5px; font-weight: bold;">
-                Track Your Case Here
-              </a>
-            </p>
-            
-            <p>Questions? Reply to this email or call/text ${process.env.SUPPORT_PHONE}.</p>
-            
-            <hr style="margin: 30px 0; border: none; border-top: 1px solid #eee;">
-            
-            <p style="font-size: 14px; color: #666;">
-              — Ticket Guys<br>
-              ${process.env.BUSINESS_HOURS}
-            </p>
-            
-            <p style="font-size: 12px; color: #999; font-style: italic; margin-top: 20px;">
-              Note: This message is informational and not legal advice.
-            </p>
-          </div>
-        `,
-        tags: ['payment_success', `case_${case_id}`]
-      })
-    });
-
-    if (response.ok) {
-      console.log(`✅ Payment success email sent to ${to} for case ${case_id}`);
-
-      // Log in Firestore
-      if (db) {
-        await db.collection('email_logs').add({
-          to: to,
-          type: 'payment_success',
-          caseId: case_id,
-          sentAt: new Date(),
-          status: 'sent'
-        });
-      }
-      return true;
-    } else {
-      console.error(`❌ Payment success email failed: ${response.status}`);
-      return false;
-    }
-  } catch (error) {
-    console.error('❌ Payment success email error:', error.message);
-    return false;
-  }
-}
-
-/**
- * Send payment failure email (TG_PAYMENT_FAILED template)
- */
-async function sendPaymentFailureEmail({ to, name, case_id, citation_number }) {
-  try {
-    if (!process.env.BREVO_API_KEY) {
-      console.log('⚠️ BREVO_API_KEY not set, skipping email');
-      return;
-    }
-
-    const paymentUpdateUrl = `${process.env.PAYMENT_UPDATE_BASE_URL}/retry/${case_id}`;
-
-    const response = await fetch('https://api.brevo.com/v3/smtp/email', {
-      method: 'POST',
-      headers: {
-        'api-key': process.env.BREVO_API_KEY,
-        'Content-Type': 'application/json'
-      },
-      body: JSON.stringify({
-        sender: {
-          name: 'Ticket Guys',
-          email: process.env.BREVO_SENDER_EMAIL || 'noreply@texasticketguys.com'
-        },
-        to: [{ email: to, name: name }],
-        subject: 'Payment Update Required - Action Needed | Ticket Guys',
-        htmlContent: `
-          <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; line-height: 1.6;">
-            <p>Hi ${name},</p>
-            
-            <p>Your payment didn't go through, so your case isn't fully active yet.</p>
-            
-            <p style="color: #d32f2f; font-weight: bold;">
-              In Texas, waiting can create avoidable problems (warrants/added fees and even driver's license renewal issues in some situations).
-            </p>
-            
-            <div style="background: #ffebee; padding: 20px; border-radius: 5px; margin: 25px 0; border: 1px solid #ffcdd2;">
-              <p style="font-weight: bold; margin-bottom: 15px;">If you want us to move forward, fix this now:</p>
-              
-              <p style="margin: 20px 0;">
-                <a href="${paymentUpdateUrl}" 
-                   style="background-color: #f44336; color: white; padding: 14px 28px; 
-                          text-decoration: none; border-radius: 5px; font-weight: bold; display: inline-block;">
-                  Update Payment Here
-                </a>
-              </p>
-              
-              <p><strong>Case ID:</strong> ${case_id}</p>
-              <p><strong>Citation:</strong> ${citation_number}</p>
-            </div>
-            
-            <p>If you want help by phone, call/text ${process.env.SUPPORT_PHONE} and we'll help immediately.</p>
-            
-            <hr style="margin: 30px 0; border: none; border-top: 1px solid #eee;">
-            
-            <p style="font-size: 14px; color: #666;">
-              — Ticket Guys<br>
-              ${process.env.BUSINESS_HOURS}
-            </p>
-            
-            <p style="font-size: 12px; color: #999; font-style: italic; margin-top: 20px;">
-              Note: This message is informational and not legal advice.
-            </p>
-          </div>
-        `,
-        tags: ['payment_failed', `case_${case_id}`]
-      })
-    });
-
-    if (response.ok) { 
-      console.log(`⚠️ Payment failure email sent to ${to} for case ${case_id}`);
-
-      // Log in Firestore
-      if (db) {
-        await db.collection('email_logs').add({
-          to: to,
-          type: 'payment_failure',
-          caseId: case_id,
-          sentAt: new Date(),
-          status: 'sent'
-        });
-      }
-      return true;
-    } else {
-      console.error(`❌ Payment failure email failed: ${response.status}`);
-      return false;
-    }
-  } catch (error) {
-    console.error('❌ Payment failure email error:', error.message);
-    return false;
-  }
-}
-
-/**
- * Handle successful payment
- */
-async function handlePaymentSuccess(session) {
-  const firebaseSessionId = session.client_reference_id;
-  console.log(`💰 Payment successful for Firestore session: ${firebaseSessionId}`);
-
-  try {
-    // Get ticket data from Firestore
-    const ticketRef = db.collection('tickets').doc(firebaseSessionId);
-    const ticketDoc = await ticketRef.get();
-
-    if (!ticketDoc.exists) {
-      console.error(`❌ Ticket ${firebaseSessionId} not found in Firestore`);
-      return;
-    }
-
-    const ticketData = ticketDoc.data();
-    const customerEmail = session.customer_email || ticketData.email;
-
-    // Update Firestore
-    await ticketRef.update({
-      paymentStatus: 'paid',
-      caseStatus: 'submitted_for_review',
-      paidAt: new Date(),
-      stripePaymentIntentId: session.payment_intent,
-      stripeSessionId: session.id,
-      lastUpdated: new Date(),
-      statusHistory: FieldValue.arrayUnion({
-        status: 'payment_received',
-        timestamp: new Date(),
-        note: 'Customer completed payment via Stripe.',
-      }),
-    });
-
-    console.log(`✅ Firestore updated for session: ${firebaseSessionId}`);
-
-    // ✅ SEND PAYMENT CONFIRMATION EMAIL
-    if (customerEmail) {
-      await sendPaymentSuccessEmail({
-        to: customerEmail,
-        name: ticketData.extractedData?.violator_information?.first || "Customer",
-        case_id: firebaseSessionId,
-        citation_number: ticketData.extractedData?.citation_number || 'N/A',
-        county: ticketData.extractedData?.ticket_header?.county || 'N/A',
-        court_name: ticketData.extractedData?.court_information || 'Local Court'
-      });
-    } else {
-      console.log('⚠️ No customer email found for payment confirmation');
-    }
-
-  } catch (firestoreError) {
-    console.error('❌ Firestore update failed:', firestoreError);
-  }
-}
-
-/**
- * Handle failed payment
- */
-async function handlePaymentFailed(session) {
-  const firebaseSessionId = session.client_reference_id;
-
-  console.log(`❌ Payment failed for Firestore session: ${firebaseSessionId}`);
-
-  if (!firebaseSessionId) {
-    console.error('No client_reference_id found on failed session.');
-    return;
-  }
-
-  try {
-    const ticketRef = db.collection('tickets').doc(firebaseSessionId);
-    const ticketDoc = await ticketRef.get();
-
-    if (!ticketDoc.exists) {
-      console.error(`Ticket ${firebaseSessionId} not found.`);
-      return;
-    }
-
-    const ticketData = ticketDoc.data();
-
-    // ✅ NEW: Smart way to get email (works for failures)
-    const customerEmail =
-      session.customer_email ||
-      ticketData.email ||
-      session?.last_payment_error?.payment_method?.billing_details?.email;
-
-    console.log('📧 Resolved email for failed payment:', customerEmail);
-
-    // ✅ If we found email but Firestore doesn’t have it, store it
-    if (customerEmail && !ticketData.email) {
-      await ticketRef.update({ email: customerEmail });
-      console.log('💾 Saved customer email to Firestore');
-    }
-
-    // Update Firestore status
-    await ticketRef.update({
-      paymentStatus: 'failed',
-      lastUpdated: new Date()
-    });
-
-    console.log(`✅ Firestore updated for failed payment on session: ${firebaseSessionId}`);
-
-    // ✅ Send failure email (now guaranteed when email exists anywhere)
-    if (customerEmail) {
-      await sendPaymentFailureEmail({
-        to: customerEmail,
-        name: ticketData.extractedData?.violator_information?.first || "Customer",
-        case_id: firebaseSessionId,
-        citation_number: ticketData.extractedData?.citation_number || 'N/A'
-      });
-    } else {
-      console.warn('⚠️ No email found anywhere — cannot send failure email');
-    }
-
-    // Create admin alert
-    await createAdminAlertForFailedPayment(session);
-
-  } catch (error) {
-    console.error('❌ Failed to handle payment failure:', error);
-  }
-}
-
-
-
-/*
- * Handle immediate payment failures (PaymentIntent object)
- */
-async function handlePaymentIntentFailed(paymentIntent) {
-  console.log('💰 PaymentIntent failed:', paymentIntent.id);
-
-  const firebaseSessionId = paymentIntent.metadata?.firebaseSessionId;
-
-  if (!firebaseSessionId) {
-    console.error('❌ No firebaseSessionId in metadata — cannot link to ticket.');
-    return;
-  }
-
-  // 👉 THIS IS THE KEY LINE — guaranteed email source from Stripe
-  const customerEmail =
-    paymentIntent.receipt_email ||
-    paymentIntent.metadata?.customer_email ||
-    paymentIntent.last_payment_error?.payment_method?.billing_details?.email;
-
-  console.log('📧 Email captured from Stripe:', customerEmail);
-
-  if (!customerEmail) {
-    console.error('❌ Still no email found — stopping.');
-    return;
-  }
-
-  // Fetch ticket once
-  const ticketRef = db.collection('tickets').doc(firebaseSessionId);
-  const ticketDoc = await ticketRef.get();
-
-  if (!ticketDoc.exists) {
-    console.error(`❌ Ticket ${firebaseSessionId} not found.`);
-    return;
-  }
-
-  const ticketData = ticketDoc.data();
-
-  // Save email if missing
-  if (!ticketData.email) {
-    await ticketRef.update({ email: customerEmail });
-    console.log('💾 Saved email to Firestore');
-  }
-
-  // Mark payment as failed
-  await ticketRef.update({
-    paymentStatus: 'failed',
-    lastUpdated: new Date()
-  });
-
-  console.log('✅ Firestore updated to paymentStatus=failed');
-
-  // 🔥 SEND EMAIL DIRECTLY (no mock session nonsense)
-  await sendPaymentFailureEmail({
-    to: customerEmail,
-    name: ticketData.extractedData?.violator_information?.first || "Customer",
-    case_id: firebaseSessionId,
-    citation_number: ticketData.extractedData?.citation_number || 'N/A'
-  });
-
-  console.log('📨 Failure email triggered.');
-
-  // Still create admin alert
-  await createAdminAlertForFailedPayment({
-    id: paymentIntent.id,
-    client_reference_id: firebaseSessionId,
-    customer_email: customerEmail,
-    currency: paymentIntent.currency
-  });
-}
 
 
 // Middleware
@@ -1703,10 +1288,10 @@ app.post('/api/create-payment-session', async (req, res) => {
     if (ticketData.paymentStatus === 'paid') {
       return res.status(400).json({ error: 'Ticket already paid.' });
     }
-    if (!['extracted', 'completed'].includes(ticketData.status)) {
-      // Ensure it's only payable if data has been submitted
-      return res.status(400).json({ error: 'Ticket not ready for payment.' });
-    }
+   if (!['extracted', 'completed'].includes(ticketData.status)) {
+  // Ensure it's only payable if data has been submitted
+  return res.status(400).json({ error: 'Ticket not ready for payment.' });
+}
 
     // 2. CREATE STRIPE CHECKOUT SESSION
     // Price is set here. For sandbox, use a small test amount (e.g., $1.00 = 100 cents).
@@ -1733,14 +1318,6 @@ app.post('/api/create-payment-session', async (req, res) => {
         firebaseSessionId: sessionId,
         userId: ticketData.userId,
       },
-      payment_intent_data: {
-  metadata: {
-  firebaseSessionId: sessionId,
-  userId: ticketData.userId,
-  customer_email: userEmail   // ← CRITICAL ADDITION
-},
-
-  },
       // Use your frontend URLs from environment variables
       success_url: `${process.env.FRONTEND_BASE_URL}/payment-success?session_id={CHECKOUT_SESSION_ID}`,
       cancel_url: `${process.env.FRONTEND_BASE_URL}/upload?session_id=${sessionId}`,
