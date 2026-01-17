@@ -586,67 +586,72 @@ async function handlePaymentFailed(session) {
  * Handle immediate payment failures (PaymentIntent object)
  */
 async function handlePaymentIntentFailed(paymentIntent) {
-  console.log('💰 PaymentIntent failed event received:', paymentIntent.id);
-  console.log('🔍 PaymentIntent metadata:', paymentIntent.metadata);
-  
-  // 1. Check if metadata has firebaseSessionId FIRST
+  console.log('💰 PaymentIntent failed:', paymentIntent.id);
+
   const firebaseSessionId = paymentIntent.metadata?.firebaseSessionId;
-  
-  if (firebaseSessionId) {
-    console.log('✅ Found firebaseSessionId in metadata:', firebaseSessionId);
-    
-    // Create a mock session object with the metadata
-    const mockSession = {
-  id: `pi_${paymentIntent.id}`,
-  client_reference_id: firebaseSessionId,
-  customer_email:
+
+  if (!firebaseSessionId) {
+    console.error('❌ No firebaseSessionId in metadata — cannot link to ticket.');
+    return;
+  }
+
+  // 👉 THIS IS THE KEY LINE — guaranteed email source from Stripe
+  const customerEmail =
     paymentIntent.receipt_email ||
     paymentIntent.metadata?.customer_email ||
-    paymentIntent.last_payment_error?.payment_method?.billing_details?.email,
+    paymentIntent.last_payment_error?.payment_method?.billing_details?.email;
 
-  payment_intent: paymentIntent.id,
-  metadata: paymentIntent.metadata,
+  console.log('📧 Email captured from Stripe:', customerEmail);
 
-  // 🔥 CRITICAL ADDITION — PASS THIS THROUGH
-  last_payment_error: paymentIntent.last_payment_error
-};
-
-
-    
-    console.log('🔍 Mock session created:', mockSession);
-    await handlePaymentFailed(mockSession);
-    return;  // IMPORTANT: Return here!
+  if (!customerEmail) {
+    console.error('❌ Still no email found — stopping.');
+    return;
   }
-  
-  console.log('🔍 Looking for associated Checkout Session...');
 
-  try {
-    // 2. Try to find Checkout Session
-    const sessions = await stripe.checkout.sessions.list({
-      payment_intent: paymentIntent.id,
-      limit: 1
-    });
-    
-    console.log('🔍 Found sessions:', sessions.data.length);
-    
-    if (sessions.data.length === 0) {
-      console.error('❌ No Checkout Session found for PaymentIntent:', paymentIntent.id);
-      return;
-    }
-    
-    const session = sessions.data[0];
-    console.log('✅ Found associated Checkout Session:', session.id);
-    console.log('📧 Customer email from session:', session.customer_email);
-    console.log('🔗 Client reference ID:', session.client_reference_id);
-    
-    // 3. Now call your existing handlePaymentFailed with the session
-    await handlePaymentFailed(session);
-    
-  } catch (error) {
-    console.error('❌ Error in handlePaymentIntentFailed:', error.message);
-    console.error('Stack trace:', error.stack);
+  // Fetch ticket once
+  const ticketRef = db.collection('tickets').doc(firebaseSessionId);
+  const ticketDoc = await ticketRef.get();
+
+  if (!ticketDoc.exists) {
+    console.error(`❌ Ticket ${firebaseSessionId} not found.`);
+    return;
   }
+
+  const ticketData = ticketDoc.data();
+
+  // Save email if missing
+  if (!ticketData.email) {
+    await ticketRef.update({ email: customerEmail });
+    console.log('💾 Saved email to Firestore');
+  }
+
+  // Mark payment as failed
+  await ticketRef.update({
+    paymentStatus: 'failed',
+    lastUpdated: new Date()
+  });
+
+  console.log('✅ Firestore updated to paymentStatus=failed');
+
+  // 🔥 SEND EMAIL DIRECTLY (no mock session nonsense)
+  await sendPaymentFailureEmail({
+    to: customerEmail,
+    name: ticketData.extractedData?.violator_information?.first || "Customer",
+    case_id: firebaseSessionId,
+    citation_number: ticketData.extractedData?.citation_number || 'N/A'
+  });
+
+  console.log('📨 Failure email triggered.');
+
+  // Still create admin alert
+  await createAdminAlertForFailedPayment({
+    id: paymentIntent.id,
+    client_reference_id: firebaseSessionId,
+    customer_email: customerEmail,
+    currency: paymentIntent.currency
+  });
 }
+
 
 // Middleware
 app.use(express.static('.'));
