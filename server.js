@@ -176,7 +176,32 @@ const upload = multer({
     }
   }
 });
-
+/**
+ * Create admin alert for failed payments
+ */
+async function createAdminAlertForFailedPayment(session) { // <-- Change parameter name
+  try {
+    if (!db) return;
+    
+    await db.collection('admin_alerts').add({
+      type: 'payment_failed',
+      timestamp: new Date(),
+      caseId: session.client_reference_id || 'Unknown', // <-- Use session field
+      clientEmail: session.customer_email, // <-- Use session field
+      stripeSessionId: session.id, // <-- Changed from paymentIntentId
+      // amount: (session.amount_total / 100).toFixed(2), // Optional: Use if needed
+      currency: session.currency,
+      error: 'Payment failed at checkout', // Generic or parse from last_payment_error if available
+      status: 'pending',
+      handled: false,
+      createdAt: new Date()
+    });
+    
+    console.log(`⚠️ Admin alert created for failed checkout session: ${session.id}`);
+  } catch (error) {
+    console.error('❌ Failed to create admin alert:', error.message);
+  }
+}
 // Endpoint: POST /api/stripe-webhook
 // This endpoint must use raw body for signature verification
 // Endpoint: POST /api/stripe-webhook
@@ -198,12 +223,17 @@ app.post('/api/stripe-webhook', express.raw({ type: 'application/json' }), async
   // 2. Handle the specific event
   switch (event.type) {
     case 'checkout.session.completed':
-      await handlePaymentSuccess(event.data.object);
-      break;
-
-    case 'payment_intent.payment_failed':
-      await handlePaymentFailed(event.data.object);
-      break;
+    const session = event.data.object;
+    // Ensure payment was successful
+    if (session.payment_status === 'paid') {
+      await handlePaymentSuccess(session);
+    }
+    break;
+  // ADD THIS CASE for failed payments during checkout
+  case 'checkout.session.async_payment_failed':
+    const failedSession = event.data.object;
+    await handlePaymentFailed(failedSession); // Pass the session object
+    break;
 
     case 'checkout.session.expired':
       // Optional: Handle expired sessions
@@ -220,6 +250,193 @@ app.post('/api/stripe-webhook', express.raw({ type: 'application/json' }), async
 });
 
 // ============ HELPER FUNCTIONS ============
+// ============ UPDATED PAYMENT EMAIL FUNCTIONS ============
+
+/**
+ * Send payment success email (TG_PAYMENT_PAID template)
+ */
+async function sendPaymentSuccessEmail({ to, name, case_id, citation_number, county, court_name }) {
+  try {
+    if (!process.env.BREVO_API_KEY) {
+      console.log('⚠️ BREVO_API_KEY not set, skipping email');
+      return;
+    }
+
+    const portalUrl = `${process.env.PORTAL_BASE_URL}/case/${case_id}`;
+
+    const response = await fetch('https://api.brevo.com/v3/smtp/email', {
+      method: 'POST',
+      headers: {
+        'api-key': process.env.BREVO_API_KEY,
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify({
+        sender: {
+          name: 'Ticket Guys',
+          email: process.env.BREVO_SENDER_EMAIL || 'noreply@texasticketguys.com'
+        },
+        to: [{ email: to, name: name }],
+        subject: 'Payment Received - Your Case is Active | Ticket Guys',
+        htmlContent: `
+          <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; line-height: 1.6;">
+            <p>Hi ${name},</p>
+            
+            <p><strong>Payment received</strong> — your Ticket Guys case is now active.</p>
+            
+            <div style="background: #f8f9fa; padding: 15px; border-left: 4px solid #4CAF50; margin: 20px 0;">
+              <p><strong>Case ID:</strong> ${case_id}</p>
+              <p><strong>Citation:</strong> ${citation_number}</p>
+              <p><strong>County/Court:</strong> ${county} — ${court_name || 'Local Court'}</p>
+            </div>
+            
+            <p><strong>What happens next:</strong></p>
+            <ul>
+              <li>We review your citation details</li>
+              <li>We begin the next steps for your case</li>
+              <li>You'll receive automatic updates when your case status changes</li>
+            </ul>
+            
+            <p style="margin: 25px 0;">
+              <a href="${portalUrl}" 
+                 style="background-color: #4CAF50; color: white; padding: 12px 24px; 
+                        text-decoration: none; border-radius: 5px; font-weight: bold;">
+                Track Your Case Here
+              </a>
+            </p>
+            
+            <p>Questions? Reply to this email or call/text ${process.env.SUPPORT_PHONE}.</p>
+            
+            <hr style="margin: 30px 0; border: none; border-top: 1px solid #eee;">
+            
+            <p style="font-size: 14px; color: #666;">
+              — Ticket Guys<br>
+              ${process.env.BUSINESS_HOURS}
+            </p>
+            
+            <p style="font-size: 12px; color: #999; font-style: italic; margin-top: 20px;">
+              Note: This message is informational and not legal advice.
+            </p>
+          </div>
+        `,
+        tags: ['payment_success', `case_${case_id}`]
+      })
+    });
+
+    if (response.ok) {
+      console.log(`✅ Payment success email sent to ${to} for case ${case_id}`);
+
+      // Log in Firestore
+      if (db) {
+        await db.collection('email_logs').add({
+          to: to,
+          type: 'payment_success',
+          caseId: case_id,
+          sentAt: new Date(),
+          status: 'sent'
+        });
+      }
+      return true;
+    } else {
+      console.error(`❌ Payment success email failed: ${response.status}`);
+      return false;
+    }
+  } catch (error) {
+    console.error('❌ Payment success email error:', error.message);
+    return false;
+  }
+}
+
+/**
+ * Send payment failure email (TG_PAYMENT_FAILED template)
+ */
+async function sendPaymentFailureEmail({ to, name, case_id, citation_number }) {
+  try {
+    if (!process.env.BREVO_API_KEY) {
+      console.log('⚠️ BREVO_API_KEY not set, skipping email');
+      return;
+    }
+
+    const paymentUpdateUrl = `${process.env.PAYMENT_UPDATE_BASE_URL}/retry/${case_id}`;
+
+    const response = await fetch('https://api.brevo.com/v3/smtp/email', {
+      method: 'POST',
+      headers: {
+        'api-key': process.env.BREVO_API_KEY,
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify({
+        sender: {
+          name: 'Ticket Guys',
+          email: process.env.BREVO_SENDER_EMAIL || 'noreply@texasticketguys.com'
+        },
+        to: [{ email: to, name: name }],
+        subject: 'Payment Update Required - Action Needed | Ticket Guys',
+        htmlContent: `
+          <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; line-height: 1.6;">
+            <p>Hi ${name},</p>
+            
+            <p>Your payment didn't go through, so your case isn't fully active yet.</p>
+            
+            <p style="color: #d32f2f; font-weight: bold;">
+              In Texas, waiting can create avoidable problems (warrants/added fees and even driver's license renewal issues in some situations).
+            </p>
+            
+            <div style="background: #ffebee; padding: 20px; border-radius: 5px; margin: 25px 0; border: 1px solid #ffcdd2;">
+              <p style="font-weight: bold; margin-bottom: 15px;">If you want us to move forward, fix this now:</p>
+              
+              <p style="margin: 20px 0;">
+                <a href="${paymentUpdateUrl}" 
+                   style="background-color: #f44336; color: white; padding: 14px 28px; 
+                          text-decoration: none; border-radius: 5px; font-weight: bold; display: inline-block;">
+                  Update Payment Here
+                </a>
+              </p>
+              
+              <p><strong>Case ID:</strong> ${case_id}</p>
+              <p><strong>Citation:</strong> ${citation_number}</p>
+            </div>
+            
+            <p>If you want help by phone, call/text ${process.env.SUPPORT_PHONE} and we'll help immediately.</p>
+            
+            <hr style="margin: 30px 0; border: none; border-top: 1px solid #eee;">
+            
+            <p style="font-size: 14px; color: #666;">
+              — Ticket Guys<br>
+              ${process.env.BUSINESS_HOURS}
+            </p>
+            
+            <p style="font-size: 12px; color: #999; font-style: italic; margin-top: 20px;">
+              Note: This message is informational and not legal advice.
+            </p>
+          </div>
+        `,
+        tags: ['payment_failed', `case_${case_id}`]
+      })
+    });
+
+    if (response.ok) { 
+      console.log(`⚠️ Payment failure email sent to ${to} for case ${case_id}`);
+
+      // Log in Firestore
+      if (db) {
+        await db.collection('email_logs').add({
+          to: to,
+          type: 'payment_failure',
+          caseId: case_id,
+          sentAt: new Date(),
+          status: 'sent'
+        });
+      }
+      return true;
+    } else {
+      console.error(`❌ Payment failure email failed: ${response.status}`);
+      return false;
+    }
+  } catch (error) {
+    console.error('❌ Payment failure email error:', error.message);
+    return false;
+  }
+}
 
 /**
  * Handle successful payment
@@ -232,12 +449,12 @@ async function handlePaymentSuccess(session) {
     // Get ticket data from Firestore
     const ticketRef = db.collection('tickets').doc(firebaseSessionId);
     const ticketDoc = await ticketRef.get();
-    
+
     if (!ticketDoc.exists) {
       console.error(`❌ Ticket ${firebaseSessionId} not found in Firestore`);
       return;
     }
-    
+
     const ticketData = ticketDoc.data();
     const customerEmail = session.customer_email || ticketData.email;
 
@@ -255,17 +472,18 @@ async function handlePaymentSuccess(session) {
         note: 'Customer completed payment via Stripe.',
       }),
     });
-    
+
     console.log(`✅ Firestore updated for session: ${firebaseSessionId}`);
 
     // ✅ SEND PAYMENT CONFIRMATION EMAIL
     if (customerEmail) {
-      await sendPaymentConfirmationEmail({
+      await sendPaymentSuccessEmail({
         to: customerEmail,
         name: ticketData.extractedData?.violator_information?.first || "Customer",
-        amount: (session.amount_total / 100).toFixed(2),
-        ticketId: firebaseSessionId,
-        paymentId: session.payment_intent
+        case_id: firebaseSessionId,
+        citation_number: ticketData.extractedData?.citation_number || 'N/A',
+        county: ticketData.extractedData?.ticket_header?.county || 'N/A',
+        court_name: ticketData.extractedData?.court_information || 'Local Court'
       });
     } else {
       console.log('⚠️ No customer email found for payment confirmation');
@@ -279,179 +497,54 @@ async function handlePaymentSuccess(session) {
 /**
  * Handle failed payment
  */
-async function handlePaymentFailed(paymentIntent) {
-  console.log(`❌ Payment failed: ${paymentIntent.id}`);
-  
-  const customerEmail = paymentIntent.receipt_email;
-  
-  if (customerEmail) {
-    await sendPaymentFailedEmail({
-      to: customerEmail,
-      name: paymentIntent.metadata?.customer_name || "Customer",
-      error: paymentIntent.last_payment_error?.message || "Payment was declined",
-      retryLink: `${process.env.FRONTEND_URL || 'https://yourdomain.com'}/payment-retry`
-    });
-  } else {
-    console.log('⚠️ No customer email found for payment failure notification');
-  }
-}
+// 2. Replace your handlePaymentFailed function
+async function handlePaymentFailed(session) {
+  const firebaseSessionId = session.client_reference_id;
+  const customerEmail = session.customer_email;
 
-/**
- * Send payment confirmation email using Brevo
- */
-async function sendPaymentConfirmationEmail({ to, name, amount, ticketId, paymentId }) {
+  console.log(`❌ Payment failed for Firestore session: ${firebaseSessionId}`);
+
+  if (!firebaseSessionId) {
+    console.error('No client_reference_id found on failed session.');
+    return;
+  }
+
   try {
-    if (!process.env.BREVO_API_KEY) {
-      console.log('⚠️ BREVO_API_KEY not set, skipping email');
+    // 1. Fetch ticket from Firestore
+    const ticketRef = db.collection('tickets').doc(firebaseSessionId);
+    const ticketDoc = await ticketRef.get();
+
+    if (!ticketDoc.exists) {
+      console.error(`Ticket ${firebaseSessionId} not found.`);
       return;
     }
+    const ticketData = ticketDoc.data();
 
-    const response = await fetch('https://api.brevo.com/v3/smtp/email', {
-      method: 'POST',
-      headers: {
-        'api-key': process.env.BREVO_API_KEY,
-        'Content-Type': 'application/json'
-      },
-      body: JSON.stringify({
-        sender: {
-          name: process.env.BREVO_SENDER_NAME || 'Ticket System',
-          email: process.env.BREVO_SENDER_EMAIL || 'noreply@ticketsystem.com'
-        },
-        to: [{ email: to, name: name }],
-        subject: `Payment Confirmed - Ticket #${ticketId}`,
-        htmlContent: `
-          <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">
-            <h2 style="color: #4CAF50;">Payment Confirmed!</h2>
-            <p>Dear ${name},</p>
-            <p>Your payment of <strong>$${amount}</strong> has been successfully processed.</p>
-            
-            <div style="background: #f5f5f5; padding: 15px; border-radius: 5px; margin: 20px 0;">
-              <p><strong>Ticket ID:</strong> ${ticketId}</p>
-              <p><strong>Payment ID:</strong> ${paymentId}</p>
-              <p><strong>Date:</strong> ${new Date().toLocaleDateString()}</p>
-              <p><strong>Status:</strong> <span style="color: #4CAF50;">Paid ✓</span></p>
-            </div>
-            
-            <p>Our legal team will now review your case. You'll receive updates on your case status via email.</p>
-            
-            <p style="margin-top: 30px;">
-              <strong>Next Steps:</strong><br>
-              1. Case review by legal team (24-48 hours)<br>
-              2. You'll receive case status updates<br>
-              3. Our team may contact you if additional information is needed
-            </p>
-            
-            <p>Thank you for choosing our service!</p>
-            
-            <hr style="margin: 30px 0;">
-            <p style="font-size: 12px; color: #666;">
-              If you have any questions, contact us at support@ticketsystem.com<br>
-              This is an automated message, please do not reply.
-            </p>
-          </div>
-        `,
-        tags: ['payment-confirmation', 'ticket-system']
-      })
+    // 2. Update Firestore payment status to 'failed'
+    await ticketRef.update({
+      paymentStatus: 'failed',
+      lastUpdated: new Date()
     });
 
-    if (response.ok) {
-      console.log(`✅ Payment confirmation email sent to ${to}`);
-      
-      // Log email in Firestore
-      try {
-        await db.collection('email_logs').add({
-          to: to,
-          type: 'payment_confirmation',
-          ticketId: ticketId,
-          paymentId: paymentId,
-          sentAt: new Date(),
-          status: 'sent'
-        });
-      } catch (logError) {
-        console.log('⚠️ Could not log email in Firestore:', logError.message);
-      }
-    } else {
-      console.error(`❌ Failed to send email: ${response.status}`);
+    console.log(`✅ Firestore updated for failed payment on session: ${firebaseSessionId}`);
+
+    // 3. Send payment failure email (your existing function)
+    if (customerEmail) {
+      await sendPaymentFailureEmail({
+        to: customerEmail,
+        name: ticketData.extractedData?.violator_information?.first || "Customer",
+        case_id: firebaseSessionId,
+        citation_number: ticketData.extractedData?.citation_number || 'N/A'
+      });
     }
+    // 4. Create admin alert (your existing function)
+    await createAdminAlertForFailedPayment(session);
+
   } catch (error) {
-    console.error('❌ Email sending error:', error.message);
+    console.error('❌ Failed to handle payment failure:', error);
   }
 }
 
-/**
- * Send payment failure email using Brevo
- */
-async function sendPaymentFailedEmail({ to, name, error, retryLink }) {
-  try {
-    if (!process.env.BREVO_API_KEY) {
-      console.log('⚠️ BREVO_API_KEY not set, skipping email');
-      return;
-    }
-
-    const response = await fetch('https://api.brevo.com/v3/smtp/email', {
-      method: 'POST',
-      headers: {
-        'api-key': process.env.BREVO_API_KEY,
-        'Content-Type': 'application/json'
-      },
-      body: JSON.stringify({
-        sender: {
-          name: process.env.BREVO_SENDER_NAME || 'Ticket System',
-          email: process.env.BREVO_SENDER_EMAIL || 'noreply@ticketsystem.com'
-        },
-        to: [{ email: to, name: name }],
-        subject: 'Payment Issue - Ticket Assistance',
-        htmlContent: `
-          <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">
-            <h2 style="color: #f44336;">Payment Issue</h2>
-            <p>Dear ${name},</p>
-            <p>We were unable to process your payment for your ticket assistance.</p>
-            
-            <div style="background: #ffebee; padding: 15px; border-radius: 5px; margin: 20px 0;">
-              <p><strong>Issue:</strong> ${error}</p>
-              <p><strong>Date:</strong> ${new Date().toLocaleDateString()}</p>
-              <p><strong>Status:</strong> <span style="color: #f44336;">Payment Failed</span></p>
-            </div>
-            
-            <p>Please try again with a different payment method:</p>
-            <p>
-              <a href="${retryLink}" 
-                 style="background-color: #4CAF50; color: white; padding: 12px 25px; 
-                        text-decoration: none; border-radius: 5px; display: inline-block;">
-                Retry Payment
-              </a>
-            </p>
-            
-            <p style="margin-top: 20px;">
-              <strong>Common Solutions:</strong><br>
-              1. Check your card details are correct<br>
-              2. Ensure you have sufficient funds<br>
-              3. Try a different card or payment method<br>
-              4. Contact your bank if the card is blocked
-            </p>
-            
-            <p>If you continue to experience issues, please contact our support team.</p>
-            
-            <hr style="margin: 30px 0;">
-            <p style="font-size: 12px; color: #666;">
-              Need help? Contact support at support@ticketsystem.com or call 1-800-123-4567<br>
-              This is an automated message, please do not reply.
-            </p>
-          </div>
-        `,
-        tags: ['payment-failed', 'ticket-system']
-      })
-    });
-
-    if (response.ok) {
-      console.log(`⚠️ Payment failure email sent to ${to}`);
-    } else {
-      console.error(`❌ Failed to send failure email: ${response.status}`);
-    }
-  } catch (error) {
-    console.error('❌ Failure email sending error:', error.message);
-  }
-}
 
 
 // Middleware
