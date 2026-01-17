@@ -222,17 +222,22 @@ app.post('/api/stripe-webhook', express.raw({ type: 'application/json' }), async
 
   // 2. Handle the specific event
   switch (event.type) {
-    case 'checkout.session.completed':
+   case 'checkout.session.completed':
     const session = event.data.object;
-    // Ensure payment was successful
     if (session.payment_status === 'paid') {
       await handlePaymentSuccess(session);
     }
     break;
-  // ADD THIS CASE for failed payments during checkout
+    
+  // ADD THIS - For async payment failures
   case 'checkout.session.async_payment_failed':
     const failedSession = event.data.object;
-    await handlePaymentFailed(failedSession); // Pass the session object
+    await handlePaymentFailed(failedSession);
+    break;
+    
+  // ADD THIS - For immediate payment failures
+  case 'payment_intent.payment_failed':
+    await handlePaymentIntentFailed(event.data.object);
     break;
 
     case 'checkout.session.expired':
