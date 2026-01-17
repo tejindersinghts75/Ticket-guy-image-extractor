@@ -262,8 +262,8 @@ async function sendPaymentSuccessEmail({ to, name, case_id, citation_number, cou
       return;
     }
 
-    const portalUrl = `${process.env.PORTAL_BASE_URL}/case/${case_id}`;
-
+   // const portalUrl = `${process.env.PORTAL_BASE_URL}/case/${case_id}`;
+   const portalUrl = `${process.env.PORTAL_BASE_URL}`;
     const response = await fetch('https://api.brevo.com/v3/smtp/email', {
       method: 'POST',
       headers: {
