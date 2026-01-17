@@ -603,9 +603,14 @@ async function handlePaymentIntentFailed(paymentIntent) {
     paymentIntent.receipt_email ||
     paymentIntent.metadata?.customer_email ||
     paymentIntent.last_payment_error?.payment_method?.billing_details?.email,
+
   payment_intent: paymentIntent.id,
-  metadata: paymentIntent.metadata
+  metadata: paymentIntent.metadata,
+
+  // 🔥 CRITICAL ADDITION — PASS THIS THROUGH
+  last_payment_error: paymentIntent.last_payment_error
 };
+
 
     
     console.log('🔍 Mock session created:', mockSession);
