@@ -505,7 +505,8 @@ async function handlePaymentSuccess(session) {
 // 2. Replace your handlePaymentFailed function
 async function handlePaymentFailed(session) {
   const firebaseSessionId = session.client_reference_id;
-  const customerEmail = session.customer_email;
+ // const customerEmail = session.customer_email;
+  const customerEmail = ticketData.email; 
 
   console.log(`❌ Payment failed for Firestore session: ${firebaseSessionId}`);
 
