@@ -505,9 +505,7 @@ async function handlePaymentSuccess(session) {
 // 2. Replace your handlePaymentFailed function
 async function handlePaymentFailed(session) {
   const firebaseSessionId = session.client_reference_id;
- // const customerEmail = session.customer_email;
-  const customerEmail = ticketData.email; 
-
+  
   console.log(`❌ Payment failed for Firestore session: ${firebaseSessionId}`);
 
   if (!firebaseSessionId) {
@@ -516,7 +514,7 @@ async function handlePaymentFailed(session) {
   }
 
   try {
-    // 1. Fetch ticket from Firestore
+    // 1. Fetch ticket from Firestore ONCE
     const ticketRef = db.collection('tickets').doc(firebaseSessionId);
     const ticketDoc = await ticketRef.get();
 
@@ -524,9 +522,13 @@ async function handlePaymentFailed(session) {
       console.error(`Ticket ${firebaseSessionId} not found.`);
       return;
     }
+    
     const ticketData = ticketDoc.data();
+    
+    // 2. Get email from ticketData (now it exists!)
+    const customerEmail = session.customer_email || ticketData.email;
 
-    // 2. Update Firestore payment status to 'failed'
+    // 3. Update Firestore payment status to 'failed'
     await ticketRef.update({
       paymentStatus: 'failed',
       lastUpdated: new Date()
@@ -534,7 +536,7 @@ async function handlePaymentFailed(session) {
 
     console.log(`✅ Firestore updated for failed payment on session: ${firebaseSessionId}`);
 
-    // 3. Send payment failure email (your existing function)
+    // 4. Send payment failure email
     if (customerEmail) {
       await sendPaymentFailureEmail({
         to: customerEmail,
@@ -543,7 +545,8 @@ async function handlePaymentFailed(session) {
         citation_number: ticketData.extractedData?.citation_number || 'N/A'
       });
     }
-    // 4. Create admin alert (your existing function)
+    
+    // 5. Create admin alert
     await createAdminAlertForFailedPayment(session);
 
   } catch (error) {
