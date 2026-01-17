@@ -517,10 +517,9 @@ async function handlePaymentSuccess(session) {
 /**
  * Handle failed payment
  */
-// 2. Replace your handlePaymentFailed function
 async function handlePaymentFailed(session) {
   const firebaseSessionId = session.client_reference_id;
-  
+
   console.log(`❌ Payment failed for Firestore session: ${firebaseSessionId}`);
 
   if (!firebaseSessionId) {
@@ -529,7 +528,6 @@ async function handlePaymentFailed(session) {
   }
 
   try {
-    // 1. Fetch ticket from Firestore ONCE
     const ticketRef = db.collection('tickets').doc(firebaseSessionId);
     const ticketDoc = await ticketRef.get();
 
@@ -537,13 +535,24 @@ async function handlePaymentFailed(session) {
       console.error(`Ticket ${firebaseSessionId} not found.`);
       return;
     }
-    
-    const ticketData = ticketDoc.data();
-    
-    // 2. Get email from ticketData (now it exists!)
-    const customerEmail = session.customer_email || ticketData.email;
 
-    // 3. Update Firestore payment status to 'failed'
+    const ticketData = ticketDoc.data();
+
+    // ✅ NEW: Smart way to get email (works for failures)
+    const customerEmail =
+      session.customer_email ||
+      ticketData.email ||
+      session?.last_payment_error?.payment_method?.billing_details?.email;
+
+    console.log('📧 Resolved email for failed payment:', customerEmail);
+
+    // ✅ If we found email but Firestore doesn’t have it, store it
+    if (customerEmail && !ticketData.email) {
+      await ticketRef.update({ email: customerEmail });
+      console.log('💾 Saved customer email to Firestore');
+    }
+
+    // Update Firestore status
     await ticketRef.update({
       paymentStatus: 'failed',
       lastUpdated: new Date()
@@ -551,7 +560,7 @@ async function handlePaymentFailed(session) {
 
     console.log(`✅ Firestore updated for failed payment on session: ${firebaseSessionId}`);
 
-    // 4. Send payment failure email
+    // ✅ Send failure email (now guaranteed when email exists anywhere)
     if (customerEmail) {
       await sendPaymentFailureEmail({
         to: customerEmail,
@@ -559,9 +568,11 @@ async function handlePaymentFailed(session) {
         case_id: firebaseSessionId,
         citation_number: ticketData.extractedData?.citation_number || 'N/A'
       });
+    } else {
+      console.warn('⚠️ No email found anywhere — cannot send failure email');
     }
-    
-    // 5. Create admin alert
+
+    // Create admin alert
     await createAdminAlertForFailedPayment(session);
 
   } catch (error) {
@@ -569,10 +580,9 @@ async function handlePaymentFailed(session) {
   }
 }
 
-/**
- * Handle immediate payment failures (PaymentIntent object)
- */
-/**
+
+
+/*
  * Handle immediate payment failures (PaymentIntent object)
  */
 async function handlePaymentIntentFailed(paymentIntent) {
@@ -587,13 +597,16 @@ async function handlePaymentIntentFailed(paymentIntent) {
     
     // Create a mock session object with the metadata
     const mockSession = {
-      id: `pi_${paymentIntent.id}`,  // Use payment intent ID as session ID
-      client_reference_id: firebaseSessionId,
-      customer_email: paymentIntent.receipt_email || 
-                     paymentIntent.metadata?.customer_email,
-      payment_intent: paymentIntent.id,
-      metadata: paymentIntent.metadata
-    };
+  id: `pi_${paymentIntent.id}`,
+  client_reference_id: firebaseSessionId,
+  customer_email:
+    paymentIntent.receipt_email ||
+    paymentIntent.metadata?.customer_email ||
+    paymentIntent.last_payment_error?.payment_method?.billing_details?.email,
+  payment_intent: paymentIntent.id,
+  metadata: paymentIntent.metadata
+};
+
     
     console.log('🔍 Mock session created:', mockSession);
     await handlePaymentFailed(mockSession);
@@ -1711,10 +1724,12 @@ app.post('/api/create-payment-session', async (req, res) => {
         userId: ticketData.userId,
       },
       payment_intent_data: {
-    metadata: {
-      firebaseSessionId: sessionId,  // ✅ EXPLICITLY set on PaymentIntent
-      userId: ticketData.userId,
-    }
+  metadata: {
+  firebaseSessionId: sessionId,
+  userId: ticketData.userId,
+  customer_email: userEmail   // ← CRITICAL ADDITION
+},
+
   },
       // Use your frontend URLs from environment variables
       success_url: `${process.env.FRONTEND_BASE_URL}/payment-success?session_id={CHECKOUT_SESSION_ID}`,
