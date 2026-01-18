@@ -1307,7 +1307,8 @@ app.get('/check-ticket/:sessionId', async (req, res) => {
     }
 
     const ticketData = ticketDoc.data();
-    const extractedData = ticketData.extractedData || {};
+    const extractedData = ticketData || {};
+    // const extractedData = ticketData.extractedData || {};
 
     // Check missing fields (same logic as before)
     const missingFields = checkMissingFields(extractedData, ticketData.email || '');
