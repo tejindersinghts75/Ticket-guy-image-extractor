@@ -34,16 +34,21 @@ class BrevoService {
     }
 
     const emailData = {
-      sender: {
-        name: this.senderName,
-        email: this.senderEmail
-      },
-      to: [{ email: to }],
-      subject: subject,
-      htmlContent: htmlContent,
-      params: params,
-      tags: ['ticket-guys', 'payment', ...tags]
-    };
+  sender: {
+    name: this.senderName,
+    email: this.senderEmail
+  },
+  to: [{ email: to }],
+  subject: subject,
+  htmlContent: htmlContent,
+  tags: ['ticket-guys', 'payment', ...tags]
+};
+
+// ✅ Only add params IF it is actually needed
+if (params && Object.keys(params).length > 0) {
+  emailData.params = params;
+}
+
 
     try {
       console.log(`📧 [Brevo] Sending email to: ${to}`);
