@@ -344,6 +344,8 @@ app.post('/api/stripe-webhook', express.raw({ type: 'application/json' }), async
 
     // ==================== HANDLE PAYMENT FAILURES ====================
     case 'checkout.session.async_payment_failed':
+case 'payment_intent.payment_failed':
+
       const failedSession = event.data.object;
       const failedSessionId = failedSession.client_reference_id;
 
@@ -369,8 +371,8 @@ app.post('/api/stripe-webhook', express.raw({ type: 'application/json' }), async
           break;
         }
 
-       const failedTicketData = failedTicketDoc.data();
-// DO NOT redeclare errorReason here — keep the one from failedSession
+        const failedTicketData = failedTicketDoc.data();
+        // DO NOT redeclare errorReason here — keep the one from failedSession
 
 
         // Update Firestore with failed status
@@ -390,13 +392,13 @@ app.post('/api/stripe-webhook', express.raw({ type: 'application/json' }), async
         const recipientEmail =
           failedTicketData.email ||
           failedTicketData.extractedData?.email;
-console.log('Resolved recipient email:', recipientEmail);
+        console.log('Resolved recipient email:', recipientEmail);
 
-if (!recipientEmail) {
-  console.error(
-    '❌ [Email] No usable email found in root or extractedData — skipping send'
-  );
-}
+        if (!recipientEmail) {
+          console.error(
+            '❌ [Email] No usable email found in root or extractedData — skipping send'
+          );
+        }
 
         if (recipientEmail) {
 
@@ -405,7 +407,7 @@ if (!recipientEmail) {
             const failedEmailSubject = PaymentTemplates.getPaymentFailedSubject();
 
             const failedEmailResult = await brevoService.sendEmail({
-            to: recipientEmail,
+              to: recipientEmail,
 
               subject: failedEmailSubject,
               htmlContent: failedEmailHtml,
@@ -1239,10 +1241,10 @@ app.post('/update-ticket', async (req, res) => {
     Object.keys(missingFieldsData).forEach(field => {
       updateData[`extractedData.${field}`] = missingFieldsData[field];
     });
-// 👉 CRITICAL FIX
-if (missingFieldsData.email) {
-  updateData.email = missingFieldsData.email;
-}
+    // 👉 CRITICAL FIX
+    if (missingFieldsData.email) {
+      updateData.email = missingFieldsData.email;
+    }
     updateData.status = 'completed';
     updateData.completedAt = new Date();
     updateData.lastUpdated = new Date();
