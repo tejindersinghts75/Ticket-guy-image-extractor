@@ -552,7 +552,7 @@ function checkMissingFields(extractedData, userEmail) {
 
   requiredFields.forEach(field => {
     if (field === 'email') {
-      if (!email || email.trim() === '') {
+      if (!userEmail || userEmail.trim() === '') {
         missingFields.push('email');
       }
     }
