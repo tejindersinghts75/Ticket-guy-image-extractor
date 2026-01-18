@@ -1224,7 +1224,7 @@ Now extract all data from the traffic ticket image.`;
 app.post('/update-ticket', async (req, res) => {
   const { sessionId, missingFieldsData } = req.body;
 
-  console.log('🔄 Updating ticket with missing fields:', { sessionId, missingFieldsData });
+ 
 
   try {
     if (!sessionId || !missingFieldsData) {
@@ -1277,6 +1277,7 @@ app.post('/update-ticket', async (req, res) => {
     await ticketRef.update(updateData);
 
     console.log('✅ Ticket updated successfully:', sessionId);
+     console.log('🔄 Updating ticket with missing fields:', { sessionId, missingFieldsData });
 
     res.json({
       success: true,
