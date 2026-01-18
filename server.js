@@ -344,10 +344,13 @@ app.post('/api/stripe-webhook', express.raw({ type: 'application/json' }), async
 
     // ==================== HANDLE PAYMENT FAILURES ====================
     case 'checkout.session.async_payment_failed':
-case 'payment_intent.payment_failed':
+    case 'payment_intent.payment_failed':
 
       const failedSession = event.data.object;
       const failedSessionId = failedSession.client_reference_id;
+
+      console.log(`💥 [Stripe] Payment failed for session: ${failedSessionId}`);
+      console.log('Failed session object:', JSON.stringify(failedSession, null, 2));
 
 
       if (!failedSessionId) {
@@ -373,7 +376,12 @@ case 'payment_intent.payment_failed':
 
         const failedTicketData = failedTicketDoc.data();
         // DO NOT redeclare errorReason here — keep the one from failedSession
-
+        // DEBUG: Log ALL email fields in the document
+        console.log('🔍 DEBUG - Ticket data structure:');
+        console.log('- Root email:', failedTicketData.email);
+        console.log('- extractedData?.email:', failedTicketData.extractedData?.email);
+        console.log('- extractedData.violator_information?.email:', failedTicketData.extractedData?.violator_information?.email);
+        console.log('- Full document:', JSON.stringify(failedTicketData, null, 2));
 
         // Update Firestore with failed status
         await failedTicketRef.update({
