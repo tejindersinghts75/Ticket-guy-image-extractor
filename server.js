@@ -12,7 +12,7 @@ const BrevoService = require('./services/brevoService');
 const PaymentTemplates = require('./templates/paymentTemplates');
 const AlertService = require('./utils/alertService');
 const PhoneHelper = require('./utils/phoneHelper');
-const fetch = (...args) => import('node-fetch').then(({default: fetch}) => fetch(...args));
+const fetch = (...args) => import('node-fetch').then(({ default: fetch }) => fetch(...args));
 
 // Initialize services
 const brevoService = new BrevoService();
@@ -342,32 +342,37 @@ app.post('/api/stripe-webhook', express.raw({ type: 'application/json' }), async
       }
       break;
 
-        // ==================== HANDLE PAYMENT FAILURES ====================
-   case 'checkout.session.async_payment_failed':
-  const failedSession = event.data.object;
-  const failedSessionId = failedSession.client_reference_id;
+    // ==================== HANDLE PAYMENT FAILURES ====================
+    case 'checkout.session.async_payment_failed':
+      const failedSession = event.data.object;
+      const failedSessionId = failedSession.client_reference_id;
 
-      
+
       if (!failedSessionId) {
         console.error('❌ [Stripe] No firebaseSessionId in failed payment metadata');
         break;
       }
-      
-      console.log(`💥 [Stripe] Payment failed for session: ${failedSessionId}`);
-      console.log(`   Error: ${failedPayment.last_payment_error?.message || 'Unknown error'}`);
-      
+
+      //  console.log(`💥 [Stripe] Payment failed for session: ${failedSessionId}`);
+      const errorReason =
+        failedSession.last_payment_error?.message || 'Payment failed';
+
+      console.log(`Error: ${errorReason}`);
+
+
       try {
         const failedTicketRef = db.collection('tickets').doc(failedSessionId);
         const failedTicketDoc = await failedTicketRef.get();
-        
+
         if (!failedTicketDoc.exists) {
           console.error(`❌ [Stripe] Failed ticket ${failedSessionId} not found`);
           break;
         }
-        
-        const failedTicketData = failedTicketDoc.data();
-        const errorReason = failedPayment.last_payment_error?.message || 'Payment failed';
-        
+
+       const failedTicketData = failedTicketDoc.data();
+// DO NOT redeclare errorReason here — keep the one from failedSession
+
+
         // Update Firestore with failed status
         await failedTicketRef.update({
           paymentStatus: 'failed',
@@ -378,30 +383,44 @@ app.post('/api/stripe-webhook', express.raw({ type: 'application/json' }), async
             note: `Payment failed: ${errorReason}`,
           }),
         });
-        
+
         console.log(`✅ [Stripe] Updated ticket ${failedSessionId} to paymentStatus: failed`);
-        
+
         // ==================== TASK 3: PAYMENT FAILED EMAIL ====================
-        if (failedTicketData.email) {
+        const recipientEmail =
+          failedTicketData.email ||
+          failedTicketData.extractedData?.email;
+console.log('Resolved recipient email:', recipientEmail);
+
+if (!recipientEmail) {
+  console.error(
+    '❌ [Email] No usable email found in root or extractedData — skipping send'
+  );
+}
+
+        if (recipientEmail) {
+
           try {
             const failedEmailHtml = PaymentTemplates.getPaymentFailedEmail(failedTicketData);
             const failedEmailSubject = PaymentTemplates.getPaymentFailedSubject();
-            
+
             const failedEmailResult = await brevoService.sendEmail({
-              to: failedTicketData.email,
+            to: recipientEmail,
+
               subject: failedEmailSubject,
               htmlContent: failedEmailHtml,
               tags: ['payment_failed']
             });
-            
+
             if (failedEmailResult.success) {
-              console.log(`✅ [Email] Payment failed notification sent to: ${failedTicketData.email}`);
-              
+              console.log(`✅ [Email] Payment failed notification sent to: ${recipientEmail}`);
+
               await failedTicketRef.update({
                 emailsSent: FieldValue.arrayUnion({
                   type: 'payment_failed',
                   sentAt: new Date(),
-                  to: failedTicketData.email,
+                  to: recipientEmail,
+
                   status: 'sent',
                   brevoMessageId: failedEmailResult.messageId
                 })
@@ -413,23 +432,23 @@ app.post('/api/stripe-webhook', express.raw({ type: 'application/json' }), async
             console.error('❌ [Email] Error in failed email sending:', emailError);
           }
         }
-        
+
         // ==================== TASK 4: PAYMENT FAILED SMS (CONDITIONAL) ====================
         const failedSmsCheck = PhoneHelper.shouldSendSms(failedTicketData);
-        
+
         if (failedSmsCheck.shouldSend && failedSmsCheck.phoneNumber) {
           try {
             const failedSmsContent = PaymentTemplates.getPaymentFailedSms(failedTicketData);
-            
+
             const failedSmsResult = await brevoService.sendSMS({
               recipient: failedSmsCheck.phoneNumber,
               content: failedSmsContent,
               sender: 'TicketGuys'
             });
-            
+
             if (failedSmsResult.success) {
               console.log(`✅ [SMS] Payment failed alert sent to: ${failedSmsCheck.phoneNumber}`);
-              
+
               await failedTicketRef.update({
                 smsSent: FieldValue.arrayUnion({
                   type: 'payment_failed',
@@ -445,16 +464,16 @@ app.post('/api/stripe-webhook', express.raw({ type: 'application/json' }), async
             console.error('❌ [SMS] Error in failed SMS sending:', smsError);
           }
         }
-        
+
         // ==================== TASK 3B: CREATE ADMIN ALERT ====================
         const alertResult = await AlertService.createPaymentFailedAlert(
           failedTicketData,
           errorReason
         );
-        
+
         if (alertResult.success) {
           console.log(`✅ [Alert] Admin alert created: ${alertResult.alertId}`);
-          
+
           // Link alert to ticket
           await failedTicketRef.update({
             adminAlerts: FieldValue.arrayUnion(alertResult.alertId)
@@ -462,7 +481,7 @@ app.post('/api/stripe-webhook', express.raw({ type: 'application/json' }), async
         } else {
           console.error(`❌ [Alert] Failed to create admin alert:`, alertResult.error);
         }
-        
+
       } catch (error) {
         console.error('❌ [Stripe] Failed payment handler error:', error);
       }
@@ -1220,7 +1239,10 @@ app.post('/update-ticket', async (req, res) => {
     Object.keys(missingFieldsData).forEach(field => {
       updateData[`extractedData.${field}`] = missingFieldsData[field];
     });
-
+// 👉 CRITICAL FIX
+if (missingFieldsData.email) {
+  updateData.email = missingFieldsData.email;
+}
     updateData.status = 'completed';
     updateData.completedAt = new Date();
     updateData.lastUpdated = new Date();
