@@ -1212,7 +1212,7 @@ Now extract all data from the traffic ticket image.`;
   }
 });
 
-// ✅ ADD THIS NEW ENDPOINT TO YOUR BACKEND
+// ✅ FIXED & PRODUCTION-SAFE UPDATE ENDPOINT
 app.post('/update-ticket', async (req, res) => {
   const { sessionId, missingFieldsData } = req.body;
 
@@ -1222,30 +1222,47 @@ app.post('/update-ticket', async (req, res) => {
     if (!sessionId || !missingFieldsData) {
       return res.status(400).json({ error: 'Missing sessionId or missingFieldsData' });
     }
-    // ✅ ADD THIS STATUS CHECK (MISSING IN YOUR CODE)
-    if (sessionId && db) {
-      const existingTicket = await db.collection('tickets').doc(sessionId).get();
-      if (existingTicket.exists && existingTicket.data().status === 'completed') {
-        return res.status(400).json({
-          error: 'Ticket already completed',
-          isCompleted: true,
-          message: 'This ticket has already been processed. Please start a new session.'
-        });
-      }
-    }
-    // ✅ Update Firestore with Admin SDK (bypasses security rules)
-    const ticketRef = db.collection('tickets').doc(sessionId);
 
-    // Prepare update data
+    const ticketRef = db.collection('tickets').doc(sessionId);
+    const existingTicket = await ticketRef.get();
+
+    if (!existingTicket.exists) {
+      return res.status(404).json({ error: 'Ticket not found' });
+    }
+
+    const currentTicket = existingTicket.data();
+
+    if (currentTicket.status === 'completed') {
+      return res.status(400).json({
+        error: 'Ticket already completed',
+        isCompleted: true,
+        message: 'This ticket has already been processed.'
+      });
+    }
+
+    // Prepare update payload
     const updateData = {};
+
+    // 1) Update extractedData fields
     Object.keys(missingFieldsData).forEach(field => {
       updateData[`extractedData.${field}`] = missingFieldsData[field];
     });
-    // 👉 CRITICAL FIX
-    if (missingFieldsData.email) {
-      updateData.email = missingFieldsData.email;
-    }
-    updateData.status = 'completed';
+
+    // 2) CRITICAL EMAIL FIX
+    // Always keep a valid root-level email
+    const finalEmail =
+      missingFieldsData.email?.trim() ||   // use new email if provided
+      currentTicket.email ||               // else keep existing
+      currentTicket.extractedData?.email || // final fallback
+      "";
+
+    updateData.email = finalEmail;
+
+    // Also keep extractedData.email in sync
+    updateData["extractedData.email"] = finalEmail;
+
+    // 3) Mark ticket completed
+    updateData.status = "completed";
     updateData.completedAt = new Date();
     updateData.lastUpdated = new Date();
 
@@ -1255,8 +1272,8 @@ app.post('/update-ticket', async (req, res) => {
 
     res.json({
       success: true,
-      message: 'Ticket updated successfully',
-      sessionId: sessionId
+      message: "Ticket updated successfully",
+      sessionId
     });
 
   } catch (error) {
@@ -1267,6 +1284,7 @@ app.post('/update-ticket', async (req, res) => {
     });
   }
 });
+
 
 // ✅ NEW SECURE ENDPOINT
 app.get('/check-ticket/:sessionId', async (req, res) => {
