@@ -343,9 +343,10 @@ app.post('/api/stripe-webhook', express.raw({ type: 'application/json' }), async
       break;
 
         // ==================== HANDLE PAYMENT FAILURES ====================
-    case 'checkout.session.async_payment_failed':
-      const failedPayment = event.data.object;
-      const failedSessionId = failedPayment.metadata?.firebaseSessionId;
+   case 'checkout.session.async_payment_failed':
+  const failedSession = event.data.object;
+  const failedSessionId = failedSession.client_reference_id;
+
       
       if (!failedSessionId) {
         console.error('❌ [Stripe] No firebaseSessionId in failed payment metadata');
