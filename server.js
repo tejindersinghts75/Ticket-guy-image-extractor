@@ -343,7 +343,7 @@ app.post('/api/stripe-webhook', express.raw({ type: 'application/json' }), async
       break;
 
         // ==================== HANDLE PAYMENT FAILURES ====================
-    case 'payment_intent.payment_failed':
+    case 'checkout.session.async_payment_failed':
       const failedPayment = event.data.object;
       const failedSessionId = failedPayment.metadata?.firebaseSessionId;
       
