@@ -342,10 +342,6 @@ app.post('/api/stripe-webhook', express.raw({ type: 'application/json' }), async
       }
       break;
 
-       case 'checkout.session.async_payment_failed':
-    console.log('Async payment failed'); // This runs for declines
-    // Send failure email using session.customer_details.email
-    break;
 
     // ==================== HANDLE PAYMENT FAILURES ====================
     case 'checkout.session.async_payment_failed':
