@@ -15,6 +15,7 @@ const PhoneHelper = require('./utils/phoneHelper');
 const fetch = (...args) => import('node-fetch').then(({ default: fetch }) => fetch(...args));
 const StatusService = require('./services/statusService');
 const StatusNotification = require('./services/statusNotification');
+const admin = require('firebase-admin');
 
 StatusService.start().catch(console.error);
 
