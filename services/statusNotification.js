@@ -1,107 +1,76 @@
-require('dotenv').config(); // ✅ Load environment variables FIRST
-
+require('dotenv').config();
 const brevoService = require('./brevoService');
 const admin = require('firebase-admin');
-const { getFirestore } = require('firebase-admin/firestore');
 
 class StatusNotification {
   constructor() {
-    this.db = getFirestore();
+    if (!admin.apps.length) {
+      throw new Error('Firebase must be initialized first');
+    }
+    this.db = admin.firestore();
   }
-  
+
   async sendForStatus(status, caseData, caseId) {
-    // ✅ SECURE: Input validation
-    this.validateInputs(status, caseData, caseId);
-    
-    // ✅ SECURE: Get status message safely
-    const statusMessage = this.getStatusMessage(caseData, status);
-    
-    // ✅ SECURE: Prepare email data with validation
-    const emailData = this.prepareEmailData(status, caseData, caseId, statusMessage);
-    
-    // ✅ SECURE: Send email with retry
-    await this.sendEmailWithRetry(emailData);
-    
-    // ✅ SECURE: Send SMS if opted in (with validation)
-    if (caseData.smsOptedIn === true && caseData.phone) {
-      await this.sendSms(status, caseData, caseId);
+    try {
+      this.validateInputs(status, caseData, caseId);
+      const statusMessage = this.getStatusMessage(caseData, status);
+      const emailData = this.prepareEmailData(status, caseData, caseId, statusMessage);
+      
+      await this.sendEmailWithRetry(emailData);
+      console.log(`✅ Email sent for ${caseId} → ${status}`);
+      
+      if (caseData.smsOptedIn === true && caseData.phone) {
+        await this.sendSms(status, caseData, caseId);
+      }
+      
+      if (status === 'case_dismissed') {
+        await this.scheduleReviewRequest(caseData, caseId);
+      }
+      
+      await this.logNotification('email_sent', caseId, status, caseData.email);
+      
+    } catch (error) {
+      console.error(`❌ Notification failed ${caseId}:`, error.message);
+      throw error;
     }
-    
-    // ✅ SECURE: Schedule review for dismissed
-    if (status === 'case_dismissed') {
-      await this.scheduleReviewRequest(caseData, caseId);
-    }
-    
-    // ✅ SECURE: Log successful send (sanitized)
-    await this.logNotification('email_sent', caseId, status, caseData.email);
   }
-  
+
   validateInputs(status, caseData, caseId) {
-    // ✅ SECURE: Validate status
     const validStatuses = [
-      'approval_pending',
-      'case_approved',
-      'case_in_progress',
-      'case_appealed',
-      'requires_attention',
-      'case_dismissed'
+      'approval_pending', 'case_approved', 'case_in_progress',
+      'case_appealed', 'requires_attention', 'case_dismissed'
     ];
     
     if (!validStatuses.includes(status)) {
       throw new Error(`Invalid status: ${status}`);
     }
     
-    // ✅ SECURE: Validate required fields
-    if (!caseData || typeof caseData !== 'object') {
-      throw new Error('caseData must be an object');
+    if (!caseData?.email) {
+      throw new Error('Email required');
     }
     
-    if (!caseData.email || typeof caseData.email !== 'string') {
-      throw new Error('Valid email is required');
-    }
-    
-    // ✅ SECURE: Validate email format
     const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
     if (!emailRegex.test(caseData.email)) {
       throw new Error('Invalid email format');
     }
-    
-    if (!caseId || typeof caseId !== 'string' || caseId.length < 3) {
-      throw new Error('Valid caseId is required');
-    }
   }
-  
+
   getStatusMessage(caseData, status) {
-    // ✅ SECURE: Safely get message from clientMessages
-    if (!caseData.clientMessages || typeof caseData.clientMessages !== 'object') {
-      return '';
-    }
-    
-    const message = caseData.clientMessages[status];
-    
-    // ✅ SECURE: Sanitize message to prevent XSS
-    if (typeof message === 'string') {
-      return message.replace(/[<>]/g, '').substring(0, 500); // Limit length
-    }
-    
-    return '';
+    if (!caseData.clientMessages?.[status]) return '';
+    return String(caseData.clientMessages[status]).replace(/[<>]/g, '').substring(0, 500);
   }
-  
+
   prepareEmailData(status, caseData, caseId, statusMessage) {
-    // ✅ SECURE: Validate environment variables exist
-    const baseUrl = this.validateEnvVariable('PORTAL_BASE_URL', 'https://portal.yourdomain.com');
-    const supportPhone = this.validateEnvVariable('SUPPORT_PHONE', '(555) 123-4567');
+    const baseUrl = process.env.PORTAL_BASE_URL || 'https://your-portal.com';
+    const supportPhone = process.env.SUPPORT_PHONE || '(555) 123-4567';
     const businessHours = process.env.BUSINESS_HOURS || 'Mon-Fri 9am-6pm CT';
     
-    // ✅ SECURE: Map status to template
     const templateInfo = this.getTemplateInfo(status);
-    
-    // ✅ SECURE: Sanitize all user inputs
     const sanitizedData = this.sanitizeUserData(caseData);
     
     return {
       to: sanitizedData.email,
-      name: sanitizedData.firstName || '',
+      name: sanitizedData.firstName || 'Customer',
       subject: templateInfo.subject,
       htmlContent: templateInfo.html,
       params: {
@@ -117,253 +86,129 @@ class StatusNotification {
       }
     };
   }
-  
-  validateEnvVariable(varName, defaultValue = '') {
-    const value = process.env[varName];
-    
-    // ✅ SECURE: In production, require the variable
-    if (process.env.NODE_ENV === 'production' && !value) {
-      throw new Error(`Required environment variable missing: ${varName}`);
-    }
-    
-    // ✅ SECURE: Validate URL format for URLs
-    if (varName.includes('URL') && value) {
-      try {
-        new URL(value);
-      } catch (e) {
-        throw new Error(`Invalid URL in ${varName}: ${value}`);
-      }
-    }
-    
-    return value || defaultValue;
-  }
-  
+
   sanitizeUserData(caseData) {
     const sanitized = { ...caseData };
+    const sensitive = ['password', 'ssn', 'cardNumber', 'cvv'];
+    sensitive.forEach(field => delete sanitized[field]);
     
-    // ✅ SECURE: Remove any sensitive fields
-    const sensitiveFields = [
-      'privateKey', 'password', 'ssn', 'creditCard', 
-      'cardNumber', 'cvv', 'expiration'
-    ];
-    
-    sensitiveFields.forEach(field => {
-      if (sanitized[field]) {
-        delete sanitized[field];
-      }
-    });
-    
-    // ✅ SECURE: Sanitize string fields
     Object.keys(sanitized).forEach(key => {
       if (typeof sanitized[key] === 'string') {
-        // Remove HTML tags and limit length
-        sanitized[key] = sanitized[key]
-          .replace(/[<>]/g, '')
-          .substring(0, 1000);
+        sanitized[key] = sanitized[key].replace(/[<>]/g, '').substring(0, 1000);
       }
     });
-    
     return sanitized;
   }
-  
+
   async sendEmailWithRetry(emailData, maxRetries = 3) {
     for (let attempt = 1; attempt <= maxRetries; attempt++) {
       try {
-        // ✅ SECURE: Validate email data before sending
-        this.validateEmailData(emailData);
-        
         await brevoService.sendTransactionalEmail({
           subject: emailData.subject,
           htmlContent: emailData.htmlContent,
           to: [{ email: emailData.to, name: emailData.name }],
           params: emailData.params
         });
-        
         console.log(`✅ Email sent to ${this.maskEmail(emailData.to)} (attempt ${attempt})`);
         return;
-        
       } catch (error) {
-        console.error(`Email attempt ${attempt} failed for ${this.maskEmail(emailData.to)}:`, error.message);
-        
-        if (attempt === maxRetries) {
-          throw new Error(`Failed to send email after ${maxRetries} attempts`);
-        }
-        
-        // ✅ SECURE: Exponential backoff
-        await new Promise(resolve => setTimeout(resolve, Math.pow(2, attempt) * 1000));
+        console.error(`Email attempt ${attempt} failed:`, error.message);
+        if (attempt === maxRetries) throw error;
+        await new Promise(r => setTimeout(r, 2000 * attempt));
       }
     }
   }
-  
-  validateEmailData(emailData) {
-    if (!emailData || typeof emailData !== 'object') {
-      throw new Error('Invalid email data');
-    }
-    
-    if (!emailData.to || typeof emailData.to !== 'string') {
-      throw new Error('Invalid recipient email');
-    }
-    
-    if (!emailData.subject || typeof emailData.subject !== 'string') {
-      throw new Error('Invalid email subject');
-    }
-    
-    if (!emailData.htmlContent || typeof emailData.htmlContent !== 'string') {
-      throw new Error('Invalid email content');
-    }
-    
-    // ✅ SECURE: Validate email format
-    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
-    if (!emailRegex.test(emailData.to)) {
-      throw new Error('Invalid email format');
-    }
-  }
-  
+
   maskEmail(email) {
-    if (!email || typeof email !== 'string') return 'unknown';
-    
     const [name, domain] = email.split('@');
-    if (!name || !domain) return 'invalid';
-    
-    // ✅ SECURE: Mask email in logs for privacy
-    const maskedName = name.length > 2 
-      ? name.substring(0, 2) + '*'.repeat(name.length - 2)
-      : '**';
-    
-    return `${maskedName}@${domain}`;
+    if (!name || !domain) return 'unknown';
+    const masked = name.length > 2 ? name.slice(0,2) + '*' : '**';
+    return `${masked}@${domain}`;
   }
-  
+
   getTemplateInfo(status) {
-    // ✅ SECURE: Templates are hardcoded (not user input)
     const templates = {
       'approval_pending': {
-        subject: 'Update: your case status is now Approval Pending',
-        html: `Hi {{first_name}},<br><br>Update: your case status is now Approval Pending...` // Your full template
+        subject: 'Update: Case Now Approval Pending',
+        html: `Hi {{first_name}},<br><br>
+Update: your case status is now <strong>Approval Pending</strong>.<br><br>
+What this means:<br>
+• We've received your submission<br>
+• Our team is reviewing it for acceptance<br>
+Track your case: {{portal_url}}<br><br>
+— Ticket Guys<br>
+{{support_phone}}`
       },
       'case_approved': {
-        subject: 'Good news — your case status is now Approved',
-        html: `Hi {{first_name}},<br><br>Good news — your case status is now Approved...`
+        subject: '✅ Approved - Moving Forward!',
+        html: `Hi {{first_name}},<br><br>
+<strong>Good news</strong> — your case is now <strong>Approved</strong>!<br><br>
+• Case accepted by our team<br>
+• Moving into active handling<br>
+Track updates: {{portal_url}}<br><br>
+— Ticket Guys`
       },
       'case_in_progress': {
-        subject: 'Update: your case status is now In Progress',
-        html: `Hi {{first_name}},<br><br>Update: your case status is now In Progress...`
+        subject: '🔄 Case Now In Progress',
+        html: `Hi {{first_name}},<br><br>
+<strong>Update:</strong> Case {{case_id}} is now <strong>In Progress</strong>.<br><br>
+Our team is actively working your case.<br>
+We'll notify you if anything needed.<br><br>
+Track: {{portal_url}}<br><br>
+— Ticket Guys`
       },
       'case_appealed': {
-        subject: 'Update: your case status is now Appealed',
-        html: `Hi {{first_name}},<br><br>Update: your case status is now Appealed...`
+        subject: '📋 Case Now Appealed',
+        html: `Hi {{first_name}},<br><br>
+<strong>Update:</strong> Case {{case_id}} is now <strong>Appealed</strong>.<br><br>
+Your case has moved to appeal process.<br>
+Check portal for updates: {{portal_url}}<br><br>
+— Ticket Guys`
       },
       'requires_attention': {
-        subject: 'Update: your case status now Requires Attention',
-        html: `Hi {{first_name}},<br><br>Your case status is now Requires Attention...`
+        subject: '⚠️ Action Needed: {{case_id}}',
+        html: `Hi {{first_name}},<br><br>
+<strong>Requires Attention</strong> — we need one detail for case {{case_id}}.<br><br>
+{{status_note}}<br><br>
+<strong>Fastest fix:</strong><br>
+• Reply to this email, or<br>
+• Update here: {{portal_url}}<br><br>
+— Ticket Guys | {{support_phone}}`
       },
       'case_dismissed': {
-        subject: 'Great news — your case status is now Dismissed 🎉',
-        html: `Hi {{first_name}},<br><br>Great news — your case status is now Dismissed 🎉...`
+        subject: '🎉 Case {{case_id}} DISMISSED!',
+        html: `Hi {{first_name}},<br><br>
+<strong>🎉 GREAT NEWS!</strong> Case {{case_id}} is now <strong>Dismissed</strong> 🎉<br><br>
+Details: {{status_note}}<br><br>
+Save for records: {{portal_url}}<br><br>
+— Ticket Guys`
       }
     };
     
     const template = templates[status];
-    if (!template) {
-      throw new Error(`No email template for status: ${status}`);
-    }
-    
+    if (!template) throw new Error(`No template for ${status}`);
     return template;
   }
-  
-  async sendSms(status, caseData, caseId) {
-    // ✅ SECURE: Validate phone number
-    if (!this.isValidPhoneNumber(caseData.phone)) {
-      console.warn(`Invalid phone number for case ${caseId}`);
-      return;
-    }
-    
-    const smsTemplates = {
-      'approval_pending': `Ticket Guys: Case ${caseId} is now "Approval Pending." Updates: {{portal_url}} Reply STOP to opt out.`,
-      'case_approved': `Ticket Guys: Case ${caseId} is now "Approved." We're moving forward. {{portal_url}} Reply STOP to opt out.`,
-      'case_in_progress': `Ticket Guys: Case ${caseId} is now "In Progress." Updates: {{portal_url}} Reply STOP to opt out.`,
-      'case_appealed': `Ticket Guys: Case ${caseId} is now "Appealed." Updates: {{portal_url}} Reply STOP to opt out.`,
-      'requires_attention': `Ticket Guys: We need a quick detail for case ${caseId}. Check: {{portal_url}} or reply here. Reply STOP to opt out.`,
-      'case_dismissed': `Ticket Guys: Congrats — case ${caseId} is "Dismissed." Details: {{portal_url}} Reply STOP to opt out.`
-    };
-    
-    const template = smsTemplates[status];
-    if (!template) {
-      console.warn(`No SMS template for status: ${status}`);
-      return;
-    }
-    
-    // ✅ SECURE: Get URLs from environment
-    const baseUrl = this.validateEnvVariable('PORTAL_BASE_URL');
-    const portalUrl = `${baseUrl}/case/${caseId}`;
-    
-    // ✅ SECURE: Replace variables
-    const smsBody = template
-      .replace('{{portal_url}}', portalUrl)
-      .replace('{{case_id}}', caseId);
-    
-    // ✅ SECURE: Log masked phone number
-    console.log(`📱 SMS would send to ${this.maskPhone(caseData.phone)}: ${smsBody.substring(0, 50)}...`);
-    
-    // TODO: Implement SMS provider (Twilio, Brevo SMS, etc.)
-    // await smsProvider.send({
-    //   to: caseData.phone,
-    //   body: smsBody
-    // });
-  }
-  
-  isValidPhoneNumber(phone) {
-    if (!phone || typeof phone !== 'string') return false;
-    
-    // ✅ SECURE: Basic phone validation
-    const cleaned = phone.replace(/\D/g, '');
-    return cleaned.length >= 10;
-  }
-  
-  maskPhone(phone) {
-    if (!phone || typeof phone !== 'string') return 'unknown';
-    
-    // ✅ SECURE: Mask phone in logs
-    const cleaned = phone.replace(/\D/g, '');
-    if (cleaned.length < 4) return '***';
-    
-    const lastFour = cleaned.slice(-4);
-    return `***-***-${lastFour}`;
-  }
-  
+
   async scheduleReviewRequest(caseData, caseId) {
     const scheduledTime = new Date(Date.now() + 24 * 60 * 60 * 1000);
-    
-    try {
-      await this.db.collection('scheduled_review_emails').add({
-        caseId,
-        email: caseData.email,
-        firstName: caseData.firstName || '',
-        scheduledFor: scheduledTime,
-        status: 'pending',
-        createdAt: admin.firestore.FieldValue.serverTimestamp()
-      });
-      
-      console.log(`⏰ Review email scheduled for ${scheduledTime.toISOString()}`);
-      
-    } catch (error) {
-      console.error('Failed to schedule review email:', error.message);
-      throw error;
-    }
+    await this.db.collection('scheduled_review_emails').add({
+      caseId, email: caseData.email, firstName: caseData.firstName || '',
+      scheduledFor: scheduledTime, status: 'pending',
+      createdAt: admin.firestore.FieldValue.serverTimestamp()
+    });
+    console.log(`⏰ Review scheduled: ${caseId}`);
   }
-  
+
   async logNotification(type, caseId, status, email) {
-    try {
-      await this.db.collection('notification_logs').add({
-        type,
-        caseId,
-        status,
-        email: this.maskEmail(email), // ✅ SECURE: Store masked email
-        timestamp: admin.firestore.FieldValue.serverTimestamp()
-      });
-    } catch (error) {
-      console.warn('Failed to log notification:', error.message);
-    }
+    await this.db.collection('notification_logs').add({
+      type, caseId, status, email: this.maskEmail(email),
+      timestamp: admin.firestore.FieldValue.serverTimestamp()
+    });
   }
+
+  // SMS methods (stubbed - implement when ready)
+  async sendSms() { console.log('📱 SMS ready when implemented'); }
 }
 
 module.exports = new StatusNotification();
