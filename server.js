@@ -13,7 +13,12 @@ const PaymentTemplates = require('./templates/paymentTemplates');
 const AlertService = require('./utils/alertService');
 const PhoneHelper = require('./utils/phoneHelper');
 const fetch = (...args) => import('node-fetch').then(({ default: fetch }) => fetch(...args));
+const StatusService = require('./services/statusService');
+const StatusNotification = require('./services/statusNotification');
 
+statusService.start().catch(console.error);
+
+console.log('🚀 Server + Status Monitor running');
 // Initialize services
 const brevoService = new BrevoService();
 
