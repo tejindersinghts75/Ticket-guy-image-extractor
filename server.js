@@ -16,7 +16,7 @@ const fetch = (...args) => import('node-fetch').then(({ default: fetch }) => fet
 const StatusService = require('./services/statusService');
 const StatusNotification = require('./services/statusNotification');
 
-statusService.start().catch(console.error);
+StatusService.start().catch(console.error);
 
 console.log('🚀 Server + Status Monitor running');
 // Initialize services
