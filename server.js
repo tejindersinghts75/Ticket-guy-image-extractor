@@ -746,6 +746,13 @@ app.post('/extract-data', upload.array('images', 5), async (req, res) => {
     dataSource
   });
 
+
+  // 🔥 PROGRESS TRACKING----1
+  if (sessionId && db) {
+    const sessionRef = db.collection('upload-sessions').doc(sessionId);
+    await sessionRef.set({ uploadStatus: 'uploading', uploadProgress: 20 }, { merge: true });
+  }
+
   try {
     if (!req.files || req.files.length === 0) {
       return res.status(400).json({ error: 'No image files uploaded' });
@@ -754,6 +761,12 @@ app.post('/extract-data', upload.array('images', 5), async (req, res) => {
     // Array to hold results for each image
     const results = [];
     let firstExtractedData = null; // ✅ ADD THIS
+
+  // 🔥 PROGRESS TRACKING----2
+    if (sessionId && db) {
+      const sessionRef = db.collection('upload-sessions').doc(sessionId);
+      await sessionRef.update({ uploadStatus: 'processing', uploadProgress: 40 });
+    }
 
     for (const file of req.files) {
       let extractedData = {};
@@ -780,19 +793,19 @@ app.post('/extract-data', upload.array('images', 5), async (req, res) => {
 {
   "ticket_header": {
     "county": "[County name]",
-    "precinct": "[Precinct number]", 
+    "precinct": "[Precinct number]",
     "citation_number": "[Citation number]",
     "issue_date_and_time": "[Issue date and time]",
     "violation_date_and_time": "[Violation date and time]"
   },
-  
+
   "violator_information": {
     "last_name": "[Last name]",
     "first": "[First name]",
     "middle": "[Middle name]",
     "residence_address": "[Street address]",
     "phone": "[Phone number or empty]",
-    "city": "[City]", 
+    "city": "[City]",
     "state": "[State]",
     "zip_code": "[ZIP code]",
     "inter_license_number": "[Driver license number]",
@@ -801,13 +814,13 @@ app.post('/extract-data', upload.array('images', 5), async (req, res) => {
     "cdl": "[Yes/No]",
     "date_of_birth": "[Date of birth]",
     "sex": "[M/F]",
-    "race": "[Race code]", 
+    "race": "[Race code]",
     "height": "[Height in inches]",
     "weight": "[Weight in lbs]",
     "eye_color": "[Eye color]",
     "hair_color": "[Hair color]"
   },
-  
+
   "additional_information_business": {
     "parent_employer": "[Usually 'PARENT / EMPLOYER' or empty]",
     "address": "[Address or empty]",
@@ -816,7 +829,7 @@ app.post('/extract-data', upload.array('images', 5), async (req, res) => {
     "state": "[State or empty]",
     "zip_code": "[ZIP or empty]"
   },
-  
+
   "vehicle_information": {
     "license_plate": "[License plate]",
     "state": "[State]",
@@ -834,13 +847,13 @@ app.post('/extract-data', upload.array('images', 5), async (req, res) => {
     "dot_number": "[DOT number or empty]",
     "towed": "[Yes/No]"
   },
-  
+
   "location_information": {
     "address": "[Violation location address]",
     "direction_of_travel": "[Direction or empty]",
     "direction_of_turn": "[Direction or empty]"
   },
-  
+
   "violation": {
     "citation": "[Violation description]",
     "alleged_speed_mph": "[Speed]",
@@ -958,6 +971,13 @@ Now extract all data from the traffic ticket image.`;
 
     const processingTime = Date.now() - startTime;
 
+      // 🔥 PROGRESS TRACKING----3
+    if (sessionId && db) {
+      const sessionRef = db.collection('upload-sessions').doc(sessionId);
+      await sessionRef.update({ uploadStatus: 'completed', uploadProgress: 100 });
+    }
+
+
     // ✅ FIXED: Use firstExtractedData which is now defined
     res.json({
       success: true,
@@ -1042,19 +1062,19 @@ app.post('/extract-data-from-url', async (req, res) => {
 {
   "ticket_header": {
     "county": "[County name]",
-    "precinct": "[Precinct number]", 
+    "precinct": "[Precinct number]",
     "citation_number": "[Citation number]",
     "issue_date_and_time": "[Issue date and time]",
     "violation_date_and_time": "[Violation date and time]"
   },
-  
+
   "violator_information": {
     "last_name": "[Last name]",
     "first": "[First name]",
     "middle": "[Middle name]",
     "residence_address": "[Street address]",
     "phone": "[Phone number or empty]",
-    "city": "[City]", 
+    "city": "[City]",
     "state": "[State]",
     "zip_code": "[ZIP code]",
     "inter_license_number": "[Driver license number]",
@@ -1063,13 +1083,13 @@ app.post('/extract-data-from-url', async (req, res) => {
     "cdl": "[Yes/No]",
     "date_of_birth": "[Date of birth]",
     "sex": "[M/F]",
-    "race": "[Race code]", 
+    "race": "[Race code]",
     "height": "[Height in inches]",
     "weight": "[Weight in lbs]",
     "eye_color": "[Eye color]",
     "hair_color": "[Hair color]"
   },
-  
+
   "additional_information_business": {
     "parent_employer": "[Usually 'PARENT / EMPLOYER' or empty]",
     "address": "[Address or empty]",
@@ -1078,7 +1098,7 @@ app.post('/extract-data-from-url', async (req, res) => {
     "state": "[State or empty]",
     "zip_code": "[ZIP or empty]"
   },
-  
+
   "vehicle_information": {
     "license_plate": "[License plate]",
     "state": "[State]",
@@ -1096,13 +1116,13 @@ app.post('/extract-data-from-url', async (req, res) => {
     "dot_number": "[DOT number or empty]",
     "towed": "[Yes/No]"
   },
-  
+
   "location_information": {
     "address": "[Violation location address]",
     "direction_of_travel": "[Direction or empty]",
     "direction_of_turn": "[Direction or empty]"
   },
-  
+
   "violation": {
     "citation": "[Violation description]",
     "alleged_speed_mph": "[Speed]",
@@ -1227,7 +1247,7 @@ Now extract all data from the traffic ticket image.`;
 app.post('/update-ticket', async (req, res) => {
   const { sessionId, missingFieldsData } = req.body;
 
- 
+
 
   try {
     if (!sessionId || !missingFieldsData) {
@@ -1280,7 +1300,7 @@ app.post('/update-ticket', async (req, res) => {
     await ticketRef.update(updateData);
 
     console.log('✅ Ticket updated successfully:', sessionId);
-     console.log('🔄 Updating ticket with missing fields:', { sessionId, missingFieldsData });
+    console.log('🔄 Updating ticket with missing fields:', { sessionId, missingFieldsData });
 
     res.json({
       success: true,
