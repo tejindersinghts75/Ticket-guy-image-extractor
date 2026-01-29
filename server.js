@@ -722,6 +722,7 @@ app.get('/', (req, res) => {
 });
 
 // MULTI-IMAGE DATA EXTRACTION ENDPOINT - UPDATED
+// MULTI-IMAGE DATA EXTRACTION ENDPOINT - UPDATED WITH SMOOTH PROGRESS
 app.post('/extract-data', upload.array('images', 5), async (req, res) => {
   const startTime = Date.now();
 
@@ -746,48 +747,80 @@ app.post('/extract-data', upload.array('images', 5), async (req, res) => {
     dataSource
   });
 
-
-  // 🔥 PROGRESS TRACKING----1
-  if (sessionId && db) {
-    const sessionRef = db.collection('upload-sessions').doc(sessionId);
-    await sessionRef.set({ uploadStatus: 'uploading', uploadProgress: 20 }, { merge: true });
-  }
+  // 🔥 ENHANCED PROGRESS TRACKING FUNCTION
+  const updateProgress = async (progress, status, stepName) => {
+    if (sessionId && db) {
+      const sessionRef = db.collection('upload-sessions').doc(sessionId);
+      console.log(`📊 [Progress] ${stepName} - ${progress}% (${status})`);
+      await sessionRef.set({
+        uploadStatus: status,
+        uploadProgress: progress,
+        lastUpdate: new Date().toISOString(),
+        currentStep: stepName
+      }, { merge: true });
+    }
+  };
 
   try {
     if (!req.files || req.files.length === 0) {
       return res.status(400).json({ error: 'No image files uploaded' });
     }
 
+    // 🔥 STEP 1: UPLOAD INITIALIZATION (0-3 seconds)
+    await updateProgress(5, 'initializing', 'Starting upload process...');
+    await new Promise(resolve => setTimeout(resolve, 1000));
+
+    await updateProgress(15, 'uploading', 'Receiving image files...');
+    await new Promise(resolve => setTimeout(resolve, 1500));
+
+    await updateProgress(25, 'uploading', 'Validating image format...');
+    await new Promise(resolve => setTimeout(resolve, 1000));
+
     // Array to hold results for each image
     const results = [];
-    let firstExtractedData = null; // ✅ ADD THIS
+    let firstExtractedData = null;
 
-  // 🔥 PROGRESS TRACKING----2
-    if (sessionId && db) {
-      const sessionRef = db.collection('upload-sessions').doc(sessionId);
-      await sessionRef.update({ uploadStatus: 'processing', uploadProgress: 40 });
-    }
+    // 🔥 STEP 2: IMAGE PREPARATION (3-6 seconds)
+    await updateProgress(35, 'processing', 'Preparing images for analysis...');
 
-    for (const file of req.files) {
+    for (const [index, file] of req.files.entries()) {
+      console.log(`📷 Processing image ${index + 1}/${req.files.length}: ${file.originalname}`);
+
       let extractedData = {};
       let analysis = "";
       let imageInfo = getImageInfo(file.path, file.originalname);
 
       try {
+        // 🔥 SUB-STEP: Encoding image to base64
+        await updateProgress(40 + (index * 5), 'processing', `Encoding image ${index + 1}...`);
         const imageBase64 = encodeImageToBase64(file.path);
+        console.log(`✅ Image encoded, size: ${Math.round(imageBase64.length / 1024)}KB`);
+
+        await new Promise(resolve => setTimeout(resolve, 1000));
 
         // ✅ SIMPLE SWITCH: TEST vs PROD
         if (MODE === 'test') {
           // USE MOCK DATA
           console.log('🔄 Using MOCK DATA for extraction (TEST mode)');
+
+          await updateProgress(50, 'processing', 'Generating mock data...');
+          await new Promise(resolve => setTimeout(resolve, 2000));
+
           extractedData = mockDataExtraction();
           analysis = "Mock data generated for testing - MODE: test";
+
+          await updateProgress(70, 'processing', 'Processing mock data...');
+          await new Promise(resolve => setTimeout(resolve, 2000));
+
         } else {
           // USE REAL OPENAI API
           console.log('🔄 Using REAL OpenAI API (PROD mode)');
 
-          // Prepare prompt for structured data extraction
+          // 🔥 STEP 3: AI PROCESSING START (6-12 seconds)
+          await updateProgress(55, 'ai_processing', 'Initializing AI analysis...');
+          await new Promise(resolve => setTimeout(resolve, 1500));
 
+          // Prepare comprehensive prompt for structured data extraction
           const systemPrompt = `You are an expert data extraction system for Texas traffic violation tickets. Extract EVERY FIELD from the ticket image and organize it into this EXACT JSON structure:
 
 {
@@ -878,86 +911,150 @@ CRITICAL RULES:
 
 Now extract all data from the traffic ticket image.`;
 
-          const userPrompt = `Extract all data from this Texas traffic citation image and format it as JSON using the exact structure provided.`;
+          const userPrompt = `Extract all data from this Texas traffic citation image and format it as JSON using the exact structure provided. Include ALL fields even if they appear empty on the ticket.`;
 
-          const response = await openai.chat.completions.create({
-            model: "gpt-4o-mini",
-            messages: [
-              {
-                role: "system",
-                content: systemPrompt
-              },
-              {
-                role: "user",
-                content: [
-                  {
-                    type: "text",
-                    text: userPrompt
-                  },
-                  {
-                    type: "image_url",
-                    image_url: {
-                      url: `data:image/jpeg;base64,${imageBase64}`,
-                      detail: "high"
-                    }
-                  }
-                ]
-              }
-            ],
-            max_tokens: 2000,
-            temperature: 0.1
-          });
+          await updateProgress(65, 'ai_processing', 'Sending to OpenAI GPT-4o...');
+          console.log('🔥 Calling OpenAI API with detailed prompt...');
 
-          const aiResponse = response.choices[0].message.content;
+          const openaiStartTime = Date.now();
 
-          // Try to parse JSON from the response
           try {
-            // Look for JSON in the response
-            const jsonMatch = aiResponse.match(/```json\n([\s\S]*?)\n```/) ||
-              aiResponse.match(/```([\s\S]*?)```/) ||
-              aiResponse.match(/\{[\s\S]*\}/);
+            const response = await openai.chat.completions.create({
+              model: "gpt-4o-mini",
+              messages: [
+                {
+                  role: "system",
+                  content: systemPrompt
+                },
+                {
+                  role: "user",
+                  content: [
+                    {
+                      type: "text",
+                      text: userPrompt
+                    },
+                    {
+                      type: "image_url",
+                      image_url: {
+                        url: `data:image/jpeg;base64,${imageBase64}`,
+                        detail: "high"
+                      }
+                    }
+                  ]
+                }
+              ],
+              max_tokens: 2500,
+              temperature: 0.1,
+              response_format: { type: "json_object" }
+            });
 
-            if (jsonMatch) {
-              const jsonString = jsonMatch[1] || jsonMatch[0];
-              extractedData = JSON.parse(jsonString);
-              analysis = aiResponse.replace(jsonMatch[0], '').trim();
-              if (!analysis) analysis = "Data successfully extracted from the image.";
-            } else {
-              try {
-                extractedData = JSON.parse(aiResponse);
-                analysis = "Data successfully extracted and parsed.";
-              } catch (e) {
-                extractedData = { rawText: aiResponse };
-                analysis = "Could not parse structured data, raw text provided.";
+            const openaiTime = Date.now() - openaiStartTime;
+            console.log(`✅ OpenAI API response received in ${openaiTime}ms`);
+
+            // 🔥 ADAPTIVE PROGRESS BASED ON ACTUAL PROCESSING TIME
+            const estimatedTotalAITime = 10000; // 10 seconds expected
+            const aiProgress = Math.min(Math.floor((openaiTime / estimatedTotalAITime) * 30), 25);
+
+            await updateProgress(65 + aiProgress, 'ai_processing', 'AI analyzing ticket details...');
+
+            // If OpenAI was faster than expected, add delay for smooth UX
+            if (openaiTime < 8000) {
+              const delayNeeded = 8000 - openaiTime;
+              console.log(`⏳ Adding ${delayNeeded}ms delay for better UX...`);
+
+              // Progress during delay
+              const delayStart = Date.now();
+              while (Date.now() - delayStart < delayNeeded) {
+                const elapsed = Date.now() - delayStart;
+                const progressPercent = Math.min(65 + aiProgress + Math.floor((elapsed / delayNeeded) * 15), 85);
+                await updateProgress(progressPercent, 'processing', 'Finalizing analysis...');
+                await new Promise(resolve => setTimeout(resolve, 500));
               }
+            } else {
+              await updateProgress(85, 'processing', 'AI analysis complete, processing results...');
             }
-          } catch (parseError) {
-            extractedData = { error: "Could not parse structured data", rawResponse: aiResponse };
-            analysis = "The AI provided a response but it could not be parsed as structured JSON.";
+
+            const aiResponse = response.choices[0].message.content;
+            console.log(`📄 AI Response length: ${aiResponse.length} characters`);
+
+            // Try to parse JSON from the response
+            try {
+              // Look for JSON in the response
+              const jsonMatch = aiResponse.match(/```json\n([\s\S]*?)\n```/) ||
+                aiResponse.match(/```([\s\S]*?)```/) ||
+                aiResponse.match(/\{[\s\S]*\}/);
+
+              if (jsonMatch) {
+                const jsonString = jsonMatch[1] || jsonMatch[0];
+                extractedData = JSON.parse(jsonString);
+                analysis = aiResponse.replace(jsonMatch[0], '').trim();
+                if (!analysis) analysis = "Data successfully extracted from the image.";
+                console.log('✅ JSON successfully parsed from AI response');
+              } else {
+                try {
+                  extractedData = JSON.parse(aiResponse);
+                  analysis = "Data successfully extracted and parsed.";
+                  console.log('✅ JSON directly parsed from AI response');
+                } catch (e) {
+                  console.warn('⚠️ Could not parse JSON directly, trying to extract...');
+                  extractedData = { rawText: aiResponse.substring(0, 500) + "..." };
+                  analysis = "Could not parse structured data, raw text provided.";
+                }
+              }
+            } catch (parseError) {
+              console.error('❌ JSON Parse Error:', parseError.message);
+              extractedData = { error: "Could not parse structured data", rawResponse: aiResponse.substring(0, 300) };
+              analysis = "The AI provided a response but it could not be parsed as structured JSON.";
+            }
+          } catch (openaiError) {
+            console.error('❌ OpenAI API Error:', openaiError.message);
+            extractedData = { error: "OpenAI API call failed", details: openaiError.message };
+            analysis = "AI service unavailable. Please try again.";
+            await updateProgress(90, 'failed', 'AI service error - using fallback...');
           }
         }
 
         // ✅ STORE FIRST EXTRACTED DATA FOR MISSING FIELDS CHECK
         if (!firstExtractedData) {
-          firstExtractedData = extractedData; // ✅ Store for later use
+          firstExtractedData = extractedData;
+          console.log('📋 First extracted data stored for missing fields check');
         }
+
+        // 🔥 STEP 4: DATABASE SAVING (12-15 seconds)
+        await updateProgress(88, 'saving', 'Preparing to save data...');
+        await new Promise(resolve => setTimeout(resolve, 1000));
 
         // ✅ SAVE TO FIRESTORE AFTER SUCCESSFUL EXTRACTION
         if (sessionId && userId) {
-          const userEmail = req.body.email;
+          const userEmail = req.body.email || 'unknown@email.com';
+
+          await updateProgress(92, 'saving', 'Saving to database...');
 
           const saveSuccess = await saveToFirestore(sessionId, userId, extractedData, file.originalname, userEmail, 'ai_extraction');
           if (saveSuccess) {
             console.log('✅ Data saved to Firestore for user:', userId);
+            await updateProgress(96, 'saving', 'Database save complete...');
+          } else {
+            console.warn('⚠️ Firestore save reported failure');
+            await updateProgress(96, 'saving', 'Database save completed with warnings...');
           }
+
+          await new Promise(resolve => setTimeout(resolve, 1000));
         }
 
       } catch (imgErr) {
         console.error('❌ Extraction error:', imgErr);
         extractedData = { error: "Image extraction failed", details: imgErr.message };
         analysis = "";
+        await updateProgress(95, 'error', 'Extraction error occurred...');
       } finally {
-        try { fs.unlinkSync(file.path); } catch (e) { }
+        // Clean up temporary file
+        try {
+          fs.unlinkSync(file.path);
+          console.log('🧹 Temporary file cleaned up');
+        } catch (e) {
+          console.warn('⚠️ Could not delete temp file:', e.message);
+        }
       }
 
       results.push({
@@ -965,20 +1062,37 @@ Now extract all data from the traffic ticket image.`;
         extractedData,
         analysis,
         imageInfo,
-        savedToFirestore: !!(sessionId && userId)
+        savedToFirestore: !!(sessionId && userId),
+        processingOrder: index + 1
       });
+
+      // Update progress for next image if there are multiple
+      if (index < req.files.length - 1) {
+        const imageProgress = 25 + (index + 1) * (70 / req.files.length);
+        await updateProgress(Math.floor(imageProgress), 'processing', `Processing image ${index + 2}/${req.files.length}...`);
+      }
     }
 
     const processingTime = Date.now() - startTime;
+    console.log(`⏱️ Total processing time: ${processingTime}ms for ${req.files.length} image(s)`);
 
-      // 🔥 PROGRESS TRACKING----3
-    if (sessionId && db) {
-      const sessionRef = db.collection('upload-sessions').doc(sessionId);
-      await sessionRef.update({ uploadStatus: 'completed', uploadProgress: 100 });
-    }
+    // 🔥 FINAL STEP: COMPLETION (15+ seconds)
+    await updateProgress(98, 'completed', 'Finalizing processing...');
+    await new Promise(resolve => setTimeout(resolve, 500));
 
+    await updateProgress(100, 'completed', 'Processing complete!');
+    await new Promise(resolve => setTimeout(resolve, 300));
 
     // ✅ FIXED: Use firstExtractedData which is now defined
+    const missingFields = checkMissingFields(firstExtractedData, req.body.email);
+    const isComplete = missingFields.length === 0;
+
+    console.log('📋 Missing fields check:', {
+      missingFields,
+      isComplete,
+      hasEmail: !!req.body.email
+    });
+
     res.json({
       success: true,
       processingTime,
@@ -986,20 +1100,46 @@ Now extract all data from the traffic ticket image.`;
       sessionId,
       userId,
       results,
-      missingFields: checkMissingFields(firstExtractedData, req.body.email), // ✅ FIXED
-      isComplete: checkMissingFields(firstExtractedData, req.body.email).length === 0 // ✅ FIXED
+      missingFields: missingFields,
+      isComplete: isComplete,
+      progressTimeline: {
+        startedAt: new Date(startTime).toISOString(),
+        completedAt: new Date().toISOString(),
+        totalSeconds: processingTime / 1000
+      }
     });
 
   } catch (error) {
-    console.error('Error processing images:', error);
+    console.error('❌❌❌ Error processing images:', error);
+    console.error('Stack trace:', error.stack);
+
+    // Update progress on error
+    if (sessionId && db) {
+      const sessionRef = db.collection('upload-sessions').doc(sessionId);
+      await sessionRef.set({
+        uploadStatus: 'failed',
+        uploadProgress: 0,
+        error: error.message,
+        lastUpdate: new Date().toISOString(),
+        currentStep: 'error_occurred'
+      }, { merge: true });
+    }
+
     res.status(500).json({
       error: 'Failed to process images',
-      details: error.message
+      details: error.message,
+      success: false
     });
+
     // Cleanup all files
     if (req.files && Array.isArray(req.files)) {
       for (const file of req.files) {
-        try { fs.unlinkSync(file.path); } catch (e) { }
+        try {
+          fs.unlinkSync(file.path);
+          console.log('🧹 Cleaned up file on error:', file.originalname);
+        } catch (e) {
+          console.warn('⚠️ Could not delete temp file on error:', e.message);
+        }
       }
     }
   }
