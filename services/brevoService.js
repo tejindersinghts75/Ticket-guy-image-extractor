@@ -78,7 +78,7 @@ class BrevoService {
     try {
       console.log(`📱 [Brevo SMS] → ${phoneCheck.formatted} | "${smsData.content}"`);
 
-      const response = await fetch(`${this.baseUrl}/transactionalSMS/sms`, {
+      const response = await fetch(`${this.baseUrl}/transactionalSMS/send`, {
         method: 'POST',
         headers: {
           'accept': 'application/json',
