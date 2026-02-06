@@ -288,40 +288,51 @@ app.post('/api/stripe-webhook', express.raw({ type: 'application/json' }), async
 
         // ==================== TASK 2: PAYMENT SUCCESS SMS (CONDITIONAL) ====================
         // REPLACE your entire SMS section with this:
-        if (ticketData.sms_optin === true) {
-          const rawPhone = ticketData.extractedData?.violatorinformation?.phone || '';
-          const cleanPhone = rawPhone.replace(/\D/g, ''); // Remove non-digits
+        // ==================== PAYMENT SUCCESS SMS ====================
+if (ticketData.sms_optin === true) {
+  const rawPhone = ticketData.extractedData?.violatorinformation?.phone || '';
+  const cleanPhone = rawPhone.replace(/\D/g, '');
 
-          if (cleanPhone.length >= 10) {
-            try {
-              const smsContent = PaymentTemplates.getPaymentPaidSms(ticketData);
-              const smsResult = await brevoService.sendSMS({
-                recipient: '+91' + cleanPhone,
-                content: smsContent,
-                sender: 'TicketGuys'
-              });
+  if (cleanPhone.length === 10) { // India: exactly 10 digits
+    try {
+      const smsContent = PaymentTemplates.getPaymentPaidSms(ticketData);
+      const smsResult = await brevoService.sendSMS({
+        recipient: cleanPhone, // Will be auto-formatted to +91
+        content: smsContent,
+        sender: 'TicketGuys'
+      });
 
-              if (smsResult.success) {
-                console.log(`✅ [SMS] SENT to +1${cleanPhone}`);
-                await ticketRef.update({
-                  smsSent: FieldValue.arrayUnion({
-                    type: 'payment_paid',
-                    sentAt: new Date(),
-                    to: '+91' + cleanPhone,
-                    status: 'sent',
-                    messageId: smsResult.messageId
-                  })
-                });
-              }
-            } catch (error) {
-              console.error(`❌ [SMS] ERROR:`, error.message);
-            }
-          } else {
-            console.log(`ℹ️ [SMS] Invalid phone: "${rawPhone}" (needs 10+ digits)`);
-          }
-        } else {
-          console.log(`ℹ️ [SMS] Skipped - sms_optin=false`);
-        }
+      if (smsResult.success) {
+        console.log(`✅ [SMS] 🎉 PAID alert → ${smsResult.recipient}`);
+        await ticketRef.update({
+          smsSent: FieldValue.arrayUnion({
+            type: 'payment_paid',
+            sentAt: new Date(),
+            to: smsResult.recipient,
+            status: 'sent',
+            messageId: smsResult.messageId
+          })
+        });
+      } else {
+        console.error(`❌ [SMS] Failed → ${cleanPhone}:`, smsResult.error);
+        await ticketRef.update({
+          smsSent: FieldValue.arrayUnion({
+            type: 'payment_paid',
+            sentAt: new Date(),
+            to: cleanPhone,
+            status: 'failed',
+            error: smsResult.error
+          })
+        });
+      }
+    } catch (error) {
+      console.error(`❌ [SMS] Exception → ${cleanPhone}:`, error.message);
+    }
+  } else {
+    console.log(`ℹ️ [SMS] Skipped invalid phone: "${rawPhone}" (needs 10 digits)`);
+  }
+}
+
 
         // ==================== TASK 5: CANCEL SCHEDULED RECAPTURE (FUTURE) ====================
         // This will be implemented in Module 3
