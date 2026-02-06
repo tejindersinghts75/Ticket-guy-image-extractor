@@ -287,51 +287,40 @@ app.post('/api/stripe-webhook', express.raw({ type: 'application/json' }), async
         }
 
         // ==================== TASK 2: PAYMENT SUCCESS SMS (CONDITIONAL) ====================
-        // Check if SMS should be sent
-        const smsCheck = PhoneHelper.shouldSendSms(ticketData);
+        // REPLACE your entire SMS section with this:
+        if (ticketData.sms_optin === true) {
+          const rawPhone = ticketData.extractedData?.violatorinformation?.phone || '';
+          const cleanPhone = rawPhone.replace(/\D/g, ''); // Remove non-digits
 
-        if (smsCheck.shouldSend && smsCheck.phoneNumber) {
-          try {
-            const smsContent = PaymentTemplates.getPaymentPaidSms(ticketData);
-
-            const smsResult = await brevoService.sendSMS({
-              recipient: smsCheck.phoneNumber,
-              content: smsContent,
-              sender: 'TicketGuys'
-            });
-
-            if (smsResult.success) {
-              console.log(`✅ [SMS] Payment confirmation sent to: ${smsCheck.phoneNumber}`);
-
-              // Log SMS in Firestore
-              await ticketRef.update({
-                smsSent: FieldValue.arrayUnion({
-                  type: 'payment_paid',
-                  sentAt: new Date(),
-                  to: smsCheck.phoneNumber,
-                  status: 'sent',
-                  messageId: smsResult.messageId
-                })
+          if (cleanPhone.length >= 10) {
+            try {
+              const smsContent = PaymentTemplates.getPaymentPaidSms(ticketData);
+              const smsResult = await brevoService.sendSMS({
+                recipient: '+1' + cleanPhone,
+                content: smsContent,
+                sender: 'TicketGuys'
               });
-            } else if (!smsResult.disabled) {
-              // Only log as error if not disabled by feature flag
-              console.error(`❌ [SMS] Failed to send to ${smsCheck.phoneNumber}:`, smsResult.error);
 
-              await ticketRef.update({
-                smsSent: FieldValue.arrayUnion({
-                  type: 'payment_paid',
-                  sentAt: new Date(),
-                  to: smsCheck.phoneNumber,
-                  status: 'failed',
-                  error: smsResult.error
-                })
-              });
+              if (smsResult.success) {
+                console.log(`✅ [SMS] SENT to +1${cleanPhone}`);
+                await ticketRef.update({
+                  smsSent: FieldValue.arrayUnion({
+                    type: 'payment_paid',
+                    sentAt: new Date(),
+                    to: '+1' + cleanPhone,
+                    status: 'sent',
+                    messageId: smsResult.messageId
+                  })
+                });
+              }
+            } catch (error) {
+              console.error(`❌ [SMS] ERROR:`, error.message);
             }
-          } catch (smsError) {
-            console.error('❌ [SMS] Error in SMS sending:', smsError);
+          } else {
+            console.log(`ℹ️ [SMS] Invalid phone: "${rawPhone}" (needs 10+ digits)`);
           }
         } else {
-          console.log(`ℹ️ [SMS] SMS not sent: ${smsCheck.reason}`);
+          console.log(`ℹ️ [SMS] Skipped - sms_optin=false`);
         }
 
         // ==================== TASK 5: CANCEL SCHEDULED RECAPTURE (FUTURE) ====================

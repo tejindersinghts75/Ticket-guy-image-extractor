@@ -11,7 +11,7 @@ class BrevoService {
     this.senderEmail = process.env.BREVO_SENDER_EMAIL;
     this.senderName = process.env.BREVO_SENDER_NAME || 'Ticket Guys';
     this.baseUrl = 'https://api.brevo.com/v3';
-    this.smsEnabled = false; // Set to true after configuring Brevo SMS
+    this.smsEnabled = true; // Set to true after configuring Brevo SMS
   }
 
   /**
@@ -52,7 +52,7 @@ if (params && Object.keys(params).length > 0) {
 
     try {
       console.log(`📧 [Brevo] Sending email to: ${to}`);
-      
+
       const response = await fetch(`${this.baseUrl}/smtp/email`, {
         method: 'POST',
         headers: {
@@ -67,24 +67,24 @@ if (params && Object.keys(params).length > 0) {
 
       if (response.ok) {
         console.log(`✅ [Brevo] Email sent. Message ID: ${result.messageId}`);
-        return { 
-          success: true, 
+        return {
+          success: true,
           data: result,
           messageId: result.messageId
         };
       } else {
         console.error(`❌ [Brevo] Email failed: ${JSON.stringify(result)}`);
-        return { 
-          success: false, 
+        return {
+          success: false,
           error: result.message || 'Unknown error',
           details: result
         };
       }
     } catch (error) {
       console.error('❌ [Brevo] Network error:', error.message);
-      return { 
-        success: false, 
-        error: `Network error: ${error.message}` 
+      return {
+        success: false,
+        error: `Network error: ${error.message}`
       };
     }
   }
@@ -100,10 +100,10 @@ if (params && Object.keys(params).length > 0) {
     // Feature flag - disable SMS until configured
     if (!this.smsEnabled) {
       console.log('ℹ️ [Brevo] SMS is disabled. Enable by setting smsEnabled = true');
-      return { 
-        success: false, 
+      return {
+        success: false,
         error: 'SMS service not enabled',
-        disabled: true 
+        disabled: true
       };
     }
 
@@ -132,7 +132,7 @@ if (params && Object.keys(params).length > 0) {
 
     try {
       console.log(`📱 [Brevo] Sending SMS to: ${formattedRecipient}`);
-      
+
       const response = await fetch(`${this.baseUrl}/transactionalSMS/sms`, {
         method: 'POST',
         headers: {
@@ -147,24 +147,24 @@ if (params && Object.keys(params).length > 0) {
 
       if (response.ok) {
         console.log(`✅ [Brevo] SMS sent to ${formattedRecipient}`);
-        return { 
-          success: true, 
+        return {
+          success: true,
           data: result,
           messageId: result.messageId
         };
       } else {
         console.error(`❌ [Brevo] SMS failed: ${JSON.stringify(result)}`);
-        return { 
-          success: false, 
+        return {
+          success: false,
           error: result.message || 'SMS send failed',
           details: result
         };
       }
     } catch (error) {
       console.error('❌ [Brevo] SMS network error:', error.message);
-      return { 
-        success: false, 
-        error: `SMS network error: ${error.message}` 
+      return {
+        success: false,
+        error: `SMS network error: ${error.message}`
       };
     }
   }
