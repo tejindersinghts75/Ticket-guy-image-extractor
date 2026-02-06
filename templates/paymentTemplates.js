@@ -11,8 +11,8 @@ class PaymentTemplates {
    * @returns {string} - First name or fallback
    */
   static getFirstName(ticketData) {
-    return ticketData.extractedData?.violator_information?.first || 
-           ticketData.extractedData?.first_name || 
+    return ticketData.extractedData?.violator_information?.first ||
+           ticketData.extractedData?.first_name ||
            'there';
   }
 
@@ -69,28 +69,28 @@ class PaymentTemplates {
         <div class="header">
           <h2>Payment Received</h2>
         </div>
-        
+
         <p>Hi ${firstName},</p>
-        
+
         <p>Payment received — your Ticket Guys case is now active.</p>
-        
+
         <div class="info-box">
           <p><strong>Case ID:</strong> ${caseId}</p>
           <p><strong>Citation:</strong> ${citationNumber}</p>
           <p><strong>County/Court:</strong> ${county}${courtName ? ' — ' + courtName : ''}</p>
         </div>
-        
+
         <h4>What happens next:</h4>
         <ul>
           <li>We review your citation details</li>
           <li>We begin the next steps for your case</li>
           <li>You'll receive automatic updates when your case status changes</li>
         </ul>
-        
+
         <p><a href="${portalUrl}" class="button">Track Your Case Here</a></p>
-        
+
         <p>Questions? Reply to this email or call/text ${supportPhone}.</p>
-        
+
         <div class="footer">
           <p>— Ticket Guys</p>
           <p>${businessHours}</p>
@@ -133,26 +133,26 @@ class PaymentTemplates {
         <div class="header">
           <h2 class="urgent">Payment Failed</h2>
         </div>
-        
+
         <p>Hi ${firstName},</p>
-        
+
         <p>Your payment didn't go through, so your case isn't fully active yet.</p>
-        
+
         <div class="warning-box">
           <p class="urgent">In Texas, waiting can create avoidable problems (warrants/added fees and even driver's license renewal issues in some situations).</p>
           <p>If you want us to move forward, fix this now:</p>
         </div>
-        
+
         <p><strong>Update payment here:</strong></p>
         <p><a href="${paymentUpdateUrl}" class="button">Update Payment Information</a></p>
-        
+
         <div class="info-box">
           <p><strong>Case ID:</strong> ${caseId}</p>
           <p><strong>Citation:</strong> ${citationNumber}</p>
         </div>
-        
+
         <p>If you want help by phone, call/text ${supportPhone} and we'll help immediately.</p>
-        
+
         <div class="footer">
           <p>— Ticket Guys</p>
           <p>${businessHours}</p>
@@ -170,7 +170,7 @@ class PaymentTemplates {
   static getPaymentPaidSms(ticketData) {
     const caseId = ticketData.sessionId;
     const portalUrl = this.buildPortalUrl(caseId);
-    
+
     return `Ticket Guys: Payment received for case ${caseId}. We're getting to work now. Track updates: ${portalUrl} Reply STOP to opt out.`;
   }
 
@@ -182,7 +182,7 @@ class PaymentTemplates {
     const caseId = ticketData.sessionId;
     const paymentUpdateUrl = this.buildPaymentUpdateUrl(caseId);
     const supportPhone = process.env.SUPPORT_PHONE || 'your-support-phone';
-    
+
     return `Ticket Guys: Your payment didn't go through for case ${caseId}. Update here: ${paymentUpdateUrl} Need help? ${supportPhone} Reply STOP to opt out.`;
   }
 

@@ -25,12 +25,26 @@ class BrevoService {
   /**
    * Validate phone number for India (+91)
    */
-  validatePhoneNumber(phone) {
-  const clean = phone.replace(/\D/g, '');
-  const countryCode = process.env.COUNTRY_CODE === 'production' ? '1' : '91';  // US prod, India dev
-  const formatted = `+${countryCode}${clean}`;
-  return { valid: true, formatted };  // Always accepts for testing
+validatePhoneNumber(phone) {
+  // Remove ALL non-digits ✓
+  const clean = phone.replace(/\D/g, '');  // ← FIXED: single \D
+
+  // Case 1: Perfect 10-digit Indian mobile (FORM INPUT)
+  if (clean.length === 10 && /^[6-9]/.test(clean)) {
+    return { valid: true, formatted: `+91${clean}` };
+  }
+
+  // Case 2: Already full E.164 (+91xxxxxxxxxx)
+  if (clean.length === 12 && clean.startsWith('91')) {
+    return { valid: true, formatted: `+${clean}` };
+  }
+
+  return {
+    valid: false,
+    error: `Invalid phone: ${clean} (expected 10-digit Indian mobile)`
+  };
 }
+
 
 
   /**

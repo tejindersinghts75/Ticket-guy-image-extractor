@@ -289,49 +289,35 @@ app.post('/api/stripe-webhook', express.raw({ type: 'application/json' }), async
         // ==================== TASK 2: PAYMENT SUCCESS SMS (CONDITIONAL) ====================
         // REPLACE your entire SMS section with this:
         // ==================== PAYMENT SUCCESS SMS ====================
-if (ticketData.sms_optin === true) {
-  const rawPhone = ticketData.extractedData?.violatorinformation?.phone || '';
-  const cleanPhone = rawPhone.replace(/\D/g, '');
+        // ==================== PAYMENT SUCCESS SMS ====================
+        if (ticketData.sms_optin === true) {
+          const rawPhone = ticketData.extractedData?.violatorinformation?.phone || '';
+          console.log('🔍 RAW PHONE:', JSON.stringify(rawPhone)); // DEBUG
 
-  if (cleanPhone.length === 10) { // India: exactly 10 digits
-    try {
-      const smsContent = PaymentTemplates.getPaymentPaidSms(ticketData);
-      const smsResult = await brevoService.sendSMS({
-        recipient: cleanPhone, // Will be auto-formatted to +91
-        content: smsContent,
-        sender: 'TicketGuys'
-      });
+          const phoneCheck = brevoService.validatePhoneNumber(rawPhone);
+          console.log('📱 PHONE CHECK:', phoneCheck); // DEBUG
 
-      if (smsResult.success) {
-        console.log(`✅ [SMS] 🎉 PAID alert → ${smsResult.recipient}`);
-        await ticketRef.update({
-          smsSent: FieldValue.arrayUnion({
-            type: 'payment_paid',
-            sentAt: new Date(),
-            to: smsResult.recipient,
-            status: 'sent',
-            messageId: smsResult.messageId
-          })
-        });
-      } else {
-        console.error(`❌ [SMS] Failed → ${cleanPhone}:`, smsResult.error);
-        await ticketRef.update({
-          smsSent: FieldValue.arrayUnion({
-            type: 'payment_paid',
-            sentAt: new Date(),
-            to: cleanPhone,
-            status: 'failed',
-            error: smsResult.error
-          })
-        });
-      }
-    } catch (error) {
-      console.error(`❌ [SMS] Exception → ${cleanPhone}:`, error.message);
-    }
-  } else {
-    console.log(`ℹ️ [SMS] Skipped invalid phone: "${rawPhone}" (needs 10 digits)`);
-  }
-}
+          if (phoneCheck.valid) {
+            try {
+              const smsContent = PaymentTemplates.getPaymentPaidSms(ticketData);
+              const smsResult = await brevoService.sendSMS({
+                recipient: rawPhone,  // "8968925598" → auto-formatted
+                content: smsContent
+              });
+
+              if (smsResult.success) {
+                console.log(`✅ [SMS] 🎉 SENT → ${smsResult.recipient}`);
+              } else {
+                console.error(`❌ [SMS] FAILED → ${smsResult.error}`);
+              }
+            } catch (error) {
+              console.error(`❌ [SMS] ERROR →`, error.message);
+            }
+          } else {
+            console.log(`❌ [SMS] INVALID PHONE → ${phoneCheck.error}`);
+          }
+        }
+
 
 
         // ==================== TASK 5: CANCEL SCHEDULED RECAPTURE (FUTURE) ====================
