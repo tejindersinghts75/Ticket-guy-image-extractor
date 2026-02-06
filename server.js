@@ -296,7 +296,7 @@ app.post('/api/stripe-webhook', express.raw({ type: 'application/json' }), async
             try {
               const smsContent = PaymentTemplates.getPaymentPaidSms(ticketData);
               const smsResult = await brevoService.sendSMS({
-                recipient: '+1' + cleanPhone,
+                recipient: '+91' + cleanPhone,
                 content: smsContent,
                 sender: 'TicketGuys'
               });
@@ -307,7 +307,7 @@ app.post('/api/stripe-webhook', express.raw({ type: 'application/json' }), async
                   smsSent: FieldValue.arrayUnion({
                     type: 'payment_paid',
                     sentAt: new Date(),
-                    to: '+1' + cleanPhone,
+                    to: '+91' + cleanPhone,
                     status: 'sent',
                     messageId: smsResult.messageId
                   })
