@@ -9,13 +9,15 @@ class BrevoService {
     this.apiKey = process.env.BREVO_API_KEY;
     this.senderEmail = process.env.BREVO_SENDER_EMAIL;
     this.senderName = process.env.BREVO_SENDER_NAME || 'Ticket Guys';
+
     this.baseUrl = 'https://api.brevo.com/v3';
 
     // ✅ FIXED: SMS always enabled in production
     this.smsEnabled = process.env.NODE_ENV === 'production' || process.env.BREVO_SMS_ENABLED === 'true';
 
     // ✅ NEW: India-specific sender ID (must be pre-approved in Brevo dashboard)
-    this.smsSenderIndia = process.env.BREVO_SMS_SENDER_INDIA || 'TICKTGUY';
+  //  this.smsSenderIndia = process.env.BREVO_SMS_SENDER_INDIA || 'TICKTGUY';
+    this.smsSenderIndia = 'Brevo';
 
     console.log(`🚀 [Brevo] Initialized - SMS: ${this.smsEnabled ? '✅ ENABLED' : '❌ DISABLED'}`);
   }
