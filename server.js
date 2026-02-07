@@ -222,7 +222,7 @@ app.post('/api/stripe-webhook', express.raw({ type: 'application/json' }), async
         }
 
         const ticketData = ticketDoc.data();
-
+        console.log("Payment variables", ticketData)
         // 2. Update Firestore with payment details
         await ticketRef.update({
           paymentStatus: 'paid',
@@ -286,9 +286,7 @@ app.post('/api/stripe-webhook', express.raw({ type: 'application/json' }), async
           console.log('⚠️ [Email] No email found for ticket, skipping email send.');
         }
 
-        // ==================== TASK 2: PAYMENT SUCCESS SMS (CONDITIONAL) ====================
-        // REPLACE your entire SMS section with this:
-        // ==================== PAYMENT SUCCESS SMS ====================
+
         // ==================== PAYMENT SUCCESS SMS ====================
         if (ticketData.sms_optin === true) {
           const rawPhone = ticketData.extractedData?.violatorinformation?.phone || '+918968925598';
@@ -1216,7 +1214,7 @@ Now extract all data from the traffic ticket image.`;
   }
 });
 
-// ✅ FIXED & PRODUCTION-SAFE UPDATE ENDPOINT
+// ✅  MISSING FIELDS FORM
 app.post('/update-ticket', async (req, res) => {
   const { sessionId, missingFieldsData } = req.body;
 
