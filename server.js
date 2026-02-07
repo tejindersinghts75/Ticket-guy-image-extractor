@@ -239,88 +239,14 @@ app.post('/api/stripe-webhook', express.raw({ type: 'application/json' }), async
 
         console.log(`✅ [Stripe] Firestore updated for session: ${firebaseSessionId}`);
 
-        // ==================== TASK 1: PAYMENT SUCCESS EMAIL ====================
-        if (ticketData.email) {
-          try {
-            const emailHtml = PaymentTemplates.getPaymentPaidEmail(ticketData);
-            const emailSubject = PaymentTemplates.getPaymentPaidSubject();
-
-            const emailResult = await brevoService.sendEmail({
-              to: ticketData.email,
-              subject: emailSubject,
-              htmlContent: emailHtml,
-              tags: ['payment_success']
-            });
-
-            if (emailResult.success) {
-              console.log(`✅ [Email] Payment confirmation sent to: ${ticketData.email}`);
-
-              // Log email in Firestore
-              await ticketRef.update({
-                emailsSent: FieldValue.arrayUnion({
-                  type: 'payment_paid',
-                  sentAt: new Date(),
-                  to: ticketData.email,
-                  status: 'sent',
-                  brevoMessageId: emailResult.messageId
-                })
-              });
-            } else {
-              console.error(`❌ [Email] Failed to send to ${ticketData.email}:`, emailResult.error);
-
-              // Log failure
-              await ticketRef.update({
-                emailsSent: FieldValue.arrayUnion({
-                  type: 'payment_paid',
-                  sentAt: new Date(),
-                  to: ticketData.email,
-                  status: 'failed',
-                  error: emailResult.error
-                })
-              });
-            }
-          } catch (emailError) {
-            console.error('❌ [Email] Error in email sending:', emailError);
-          }
-        } else {
-          console.log('⚠️ [Email] No email found for ticket, skipping email send.');
-        }
-
-
-        // ==================== PAYMENT SUCCESS SMS ====================
-        if (ticketData.extractedData.sms_optin === true) {
-          const rawPhone = ticketData.extractedData?.phone_number || '+918968925598';
-          console.log('🔍 RAW PHONE:', JSON.stringify(rawPhone)); // DEBUG
-
-          const phoneCheck = brevoService.validatePhoneNumber(rawPhone);
-          console.log('📱 PHONE CHECK:', phoneCheck); // DEBUG
-
-          if (phoneCheck.valid) {
-            try {
-              const smsContent = PaymentTemplates.getPaymentPaidSms(ticketData);
-              const smsResult = await brevoService.sendSMS({
-                recipient: rawPhone,  // "8968925598" → auto-formatted
-                content: smsContent
-              });
-
-              if (smsResult.success) {
-                console.log(`✅ [SMS] 🎉 SENT → ${smsResult.recipient}`);
-              } else {
-                console.error(`❌ [SMS] FAILED → ${smsResult.error}`);
-              }
-            } catch (error) {
-              console.error(`❌ [SMS] ERROR →`, error.message);
-            }
-          } else {
-            console.log(`❌ [SMS] INVALID PHONE → ${phoneCheck.error}`);
-          }
-        }
 
 
 
-        // ==================== TASK 5: CANCEL SCHEDULED RECAPTURE (FUTURE) ====================
-        // This will be implemented in Module 3
-        // await cancelScheduledRecaptureEmails(firebaseSessionId);
+
+
+
+
+
 
       } catch (firestoreError) {
         console.error('❌ [Stripe] Firestore update failed:', firestoreError);
@@ -383,101 +309,9 @@ app.post('/api/stripe-webhook', express.raw({ type: 'application/json' }), async
 
         console.log(`✅ [Stripe] Updated ticket ${failedSessionId} to paymentStatus: failed`);
 
-        // ==================== TASK 3: PAYMENT FAILED EMAIL ====================
-        const recipientEmail =
-          failedTicketData.email ||
-          failedTicketData.extractedData?.email;
-        console.log('Resolved recipient email:', recipientEmail);
 
-        if (!recipientEmail) {
-          console.error(
-            '❌ [Email] No usable email found in root or extractedData — skipping send'
-          );
-        }
 
-        if (recipientEmail) {
 
-          try {
-            const failedEmailHtml = PaymentTemplates.getPaymentFailedEmail(failedTicketData);
-            const failedEmailSubject = PaymentTemplates.getPaymentFailedSubject();
-
-            const failedEmailResult = await brevoService.sendEmail({
-              to: recipientEmail,
-
-              subject: failedEmailSubject,
-              htmlContent: failedEmailHtml,
-              tags: ['payment_failed']
-            });
-
-            if (failedEmailResult.success) {
-              console.log(`✅ [Email] Payment failed notification sent to: ${recipientEmail}`);
-
-              await failedTicketRef.update({
-                emailsSent: FieldValue.arrayUnion({
-                  type: 'payment_failed',
-                  sentAt: new Date(),
-                  to: recipientEmail,
-
-                  status: 'sent',
-                  brevoMessageId: failedEmailResult.messageId
-                })
-              });
-            } else {
-              console.error(`❌ [Email] Failed to send failure email:`, failedEmailResult.error);
-            }
-          } catch (emailError) {
-            console.error('❌ [Email] Error in failed email sending:', emailError);
-          }
-        }
-
-        // ==================== TASK 4: PAYMENT FAILED SMS (CONDITIONAL) ====================
-        const failedSmsCheck = PhoneHelper.shouldSendSms(failedTicketData);
-
-        if (failedSmsCheck.shouldSend && failedSmsCheck.phoneNumber) {
-          try {
-            const failedSmsContent = PaymentTemplates.getPaymentFailedSms(failedTicketData);
-
-            const failedSmsResult = await brevoService.sendSMS({
-              recipient: failedSmsCheck.phoneNumber,
-              content: failedSmsContent,
-              sender: 'TicketGuys'
-            });
-
-            if (failedSmsResult.success) {
-              console.log(`✅ [SMS] Payment failed alert sent to: ${failedSmsCheck.phoneNumber}`);
-
-              await failedTicketRef.update({
-                smsSent: FieldValue.arrayUnion({
-                  type: 'payment_failed',
-                  sentAt: new Date(),
-                  to: failedSmsCheck.phoneNumber,
-                  status: 'sent'
-                })
-              });
-            } else if (!failedSmsResult.disabled) {
-              console.error(`❌ [SMS] Failed to send failure SMS:`, failedSmsResult.error);
-            }
-          } catch (smsError) {
-            console.error('❌ [SMS] Error in failed SMS sending:', smsError);
-          }
-        }
-
-        // ==================== TASK 3B: CREATE ADMIN ALERT ====================
-        const alertResult = await AlertService.createPaymentFailedAlert(
-          failedTicketData,
-          errorReason
-        );
-
-        if (alertResult.success) {
-          console.log(`✅ [Alert] Admin alert created: ${alertResult.alertId}`);
-
-          // Link alert to ticket
-          await failedTicketRef.update({
-            adminAlerts: FieldValue.arrayUnion(alertResult.alertId)
-          });
-        } else {
-          console.error(`❌ [Alert] Failed to create admin alert:`, alertResult.error);
-        }
 
       } catch (error) {
         console.error('❌ [Stripe] Failed payment handler error:', error);
