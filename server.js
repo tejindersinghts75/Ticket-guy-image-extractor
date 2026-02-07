@@ -288,8 +288,8 @@ app.post('/api/stripe-webhook', express.raw({ type: 'application/json' }), async
 
 
         // ==================== PAYMENT SUCCESS SMS ====================
-        if (ticketData.sms_optin === true) {
-          const rawPhone = ticketData.extractedData?.violatorinformation?.phone || '+918968925598';
+        if (ticketData.extractedData.sms_optin === true) {
+          const rawPhone = ticketData.extractedData?.phone_number || '+918968925598';
           console.log('🔍 RAW PHONE:', JSON.stringify(rawPhone)); // DEBUG
 
           const phoneCheck = brevoService.validatePhoneNumber(rawPhone);

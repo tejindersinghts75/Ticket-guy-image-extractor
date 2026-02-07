@@ -16,7 +16,7 @@ class BrevoService {
     this.smsEnabled = process.env.NODE_ENV === 'production' || process.env.BREVO_SMS_ENABLED === 'true';
 
     // ✅ NEW: India-specific sender ID (must be pre-approved in Brevo dashboard)
-  //  this.smsSenderIndia = process.env.BREVO_SMS_SENDER_INDIA || 'TICKTGUY';
+    //  this.smsSenderIndia = process.env.BREVO_SMS_SENDER_INDIA || 'TICKTGUY';
     this.smsSenderIndia = 'Brevo';
 
     console.log(`🚀 [Brevo] Initialized - SMS: ${this.smsEnabled ? '✅ ENABLED' : '❌ DISABLED'}`);
@@ -25,25 +25,25 @@ class BrevoService {
   /**
    * Validate phone number for India (+91)
    */
-validatePhoneNumber(phone) {
-  // Remove ALL non-digits ✓
-  const clean = phone.replace(/\D/g, '');  // ← FIXED: single \D
+  validatePhoneNumber(phone) {
+    // Remove ALL non-digits ✓
+    const clean = phone.replace(/\D/g, '');  // ← FIXED: single \D
 
-  // Case 1: Perfect 10-digit Indian mobile (FORM INPUT)
-  if (clean.length === 10 && /^[6-9]/.test(clean)) {
-    return { valid: true, formatted: `+91${clean}` };
+    // Case 1: Perfect 10-digit Indian mobile (FORM INPUT)
+    if (clean.length === 10 && /^[6-9]/.test(clean)) {
+      return { valid: true, formatted: `+91${clean}` };
+    }
+
+    // Case 2: Already full E.164 (+91xxxxxxxxxx)
+    if (clean.length === 12 && clean.startsWith('91')) {
+      return { valid: true, formatted: `+${clean}` };
+    }
+
+    return {
+      valid: false,
+      error: `Invalid phone: ${clean} (expected 10-digit Indian mobile)`
+    };
   }
-
-  // Case 2: Already full E.164 (+91xxxxxxxxxx)
-  if (clean.length === 12 && clean.startsWith('91')) {
-    return { valid: true, formatted: `+${clean}` };
-  }
-
-  return {
-    valid: false,
-    error: `Invalid phone: ${clean} (expected 10-digit Indian mobile)`
-  };
-}
 
 
 
@@ -73,7 +73,7 @@ validatePhoneNumber(phone) {
     }
 
     // ✅ FIXED: Proper India phone validation
-  const phoneCheck = this.validatePhoneNumber(recipient);
+    const phoneCheck = this.validatePhoneNumber(recipient);
     if (!phoneCheck.valid) {
       console.error('❌ [Brevo SMS] Phone validation failed:', phoneCheck.error);
       return { success: false, error: phoneCheck.error };
