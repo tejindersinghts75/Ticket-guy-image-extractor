@@ -1161,6 +1161,12 @@ requiredFields.forEach(field => {
 if (trimmedData.is_jp === 'Yes' && !((missingFieldsData.precinct_number || '').trim())) {
   missingFields.push('precinct_number');
 }
+if (missingFields.length > 0) {
+  return res.status(400).json({
+    error: 'Missing required fields',
+    missingFields
+  });
+}
 
 // Map to Firestore camelCase paths:
 const updateData = {};
