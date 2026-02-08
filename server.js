@@ -1146,34 +1146,30 @@ app.post('/update-ticket', async (req, res) => {
     }
 
     // SERVER-SIDE VALIDATION: Trim & check required fields (exact match to frontend)
-    const requiredFields = ['email', 'firstname', 'lastname', 'infractionviolation', 'phonenumber', 'county', 'isjp'];
-    const trimmedData = {};
-    const missingFields = [];
+    // Replace in /update-ticket endpoint:
+const requiredFields = ['email', 'first_name', 'last_name', 'infraction_violation', 'phone_number', 'county', 'is_jp'];
 
-    requiredFields.forEach(field => {
-      trimmedData[field] = (missingFieldsData[field] || '').trim();
-      if (!trimmedData[field]) {
-        missingFields.push(field);
-      }
-    });
+// Trim & validate:
+const trimmedData = {};
+const missingFields = [];
+requiredFields.forEach(field => {
+  trimmedData[field] = (missingFieldsData[field] || '').trim();  // Uses snake_case keys
+  if (!trimmedData[field]) missingFields.push(field);
+});
 
-    // Validate JP Precinct (same logic)
-    if (trimmedData.isjp === 'Y' && !((missingFieldsData.precinctnumber || '').trim())) {
-      missingFields.push('precinctnumber');
-    }
+// JP check:
+if (trimmedData.is_jp === 'Yes' && !((missingFieldsData.precinct_number || '').trim())) {
+  missingFields.push('precinct_number');
+}
 
-    if (missingFields.length > 0) {
-      return res.status(400).json({
-        error: 'Missing required fields',
-        missingFields
-      });
-    }
+// Map to Firestore camelCase paths:
+const updateData = {};
+Object.keys(trimmedData).forEach(field => {
+  // Convert snake_case → camelCase for Firestore path
+  const camelField = field.replace(/_([a-z])/g, (g) => g[1].toUpperCase());
+  updateData[`extractedData.${camelField}`] = trimmedData[field];
+});
 
-    // Prepare update payload (only validated/trimmed data)
-    const updateData = {};
-    Object.keys(trimmedData).forEach(field => {
-      updateData[`extractedData.${field}`] = trimmedData[field];
-    });
 
     // CRITICAL EMAIL FIX (keep root-level email)
     const finalEmail = trimmedData.email || currentTicket.email || currentTicket.extractedData?.email;
