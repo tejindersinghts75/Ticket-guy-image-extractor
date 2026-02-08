@@ -1049,11 +1049,82 @@ Now extract all data from the traffic ticket image.`;
 });
 
 // ✅  MISSING FIELDS FORM
+// app.post('/update-ticket', async (req, res) => {
+//   const { sessionId, missingFieldsData } = req.body;
+
+
+
+//   try {
+//     if (!sessionId || !missingFieldsData) {
+//       return res.status(400).json({ error: 'Missing sessionId or missingFieldsData' });
+//     }
+
+//     const ticketRef = db.collection('tickets').doc(sessionId);
+//     const existingTicket = await ticketRef.get();
+
+//     if (!existingTicket.exists) {
+//       return res.status(404).json({ error: 'Ticket not found' });
+//     }
+
+//     const currentTicket = existingTicket.data();
+
+//     if (currentTicket.status === 'completed') {
+//       return res.status(400).json({
+//         error: 'Ticket already completed',
+//         isCompleted: true,
+//         message: 'This ticket has already been processed.'
+//       });
+//     }
+
+//     // Prepare update payload
+//     const updateData = {};
+
+//     // 1) Update extractedData fields
+//     Object.keys(missingFieldsData).forEach(field => {
+//       updateData[`extractedData.${field}`] = missingFieldsData[field];
+//     });
+
+//     // 2) CRITICAL EMAIL FIX
+//     // Always keep a valid root-level email
+//     const finalEmail =
+//       missingFieldsData.email?.trim() ||   // use new email if provided
+//       currentTicket.email ||               // else keep existing
+//       currentTicket.extractedData?.email || // final fallback
+//       "";
+
+//     updateData.email = finalEmail;
+
+//     // Also keep extractedData.email in sync
+//     updateData["extractedData.email"] = finalEmail;
+
+//     // 3) Mark ticket completed
+//     updateData.status = "completed";
+//     updateData.completedAt = new Date();
+//     updateData.lastUpdated = new Date();
+
+//     await ticketRef.update(updateData);
+
+//     console.log('✅ Ticket updated successfully:', sessionId);
+//     console.log('🔄 Updating ticket with missing fields:', { sessionId, missingFieldsData });
+
+//     res.json({
+//       success: true,
+//       message: "Ticket updated successfully",
+//       sessionId
+//     });
+
+//   } catch (error) {
+//     console.error('❌ Error updating ticket:', error);
+//     res.status(500).json({
+//       error: 'Failed to update ticket',
+//       details: error.message
+//     });
+//   }
+// });
+
+
 app.post('/update-ticket', async (req, res) => {
   const { sessionId, missingFieldsData } = req.body;
-
-
-
   try {
     if (!sessionId || !missingFieldsData) {
       return res.status(400).json({ error: 'Missing sessionId or missingFieldsData' });
@@ -1061,13 +1132,11 @@ app.post('/update-ticket', async (req, res) => {
 
     const ticketRef = db.collection('tickets').doc(sessionId);
     const existingTicket = await ticketRef.get();
-
     if (!existingTicket.exists) {
       return res.status(404).json({ error: 'Ticket not found' });
     }
 
     const currentTicket = existingTicket.data();
-
     if (currentTicket.status === 'completed') {
       return res.status(400).json({
         error: 'Ticket already completed',
@@ -1076,51 +1145,62 @@ app.post('/update-ticket', async (req, res) => {
       });
     }
 
-    // Prepare update payload
-    const updateData = {};
+    // SERVER-SIDE VALIDATION: Trim & check required fields (exact match to frontend)
+    const requiredFields = ['email', 'firstname', 'lastname', 'infractionviolation', 'phonenumber', 'county', 'isjp'];
+    const trimmedData = {};
+    const missingFields = [];
 
-    // 1) Update extractedData fields
-    Object.keys(missingFieldsData).forEach(field => {
-      updateData[`extractedData.${field}`] = missingFieldsData[field];
+    requiredFields.forEach(field => {
+      trimmedData[field] = (missingFieldsData[field] || '').trim();
+      if (!trimmedData[field]) {
+        missingFields.push(field);
+      }
     });
 
-    // 2) CRITICAL EMAIL FIX
-    // Always keep a valid root-level email
-    const finalEmail =
-      missingFieldsData.email?.trim() ||   // use new email if provided
-      currentTicket.email ||               // else keep existing
-      currentTicket.extractedData?.email || // final fallback
-      "";
+    // Validate JP Precinct (same logic)
+    if (trimmedData.isjp === 'Y' && !((missingFieldsData.precinctnumber || '').trim())) {
+      missingFields.push('precinctnumber');
+    }
 
+    if (missingFields.length > 0) {
+      return res.status(400).json({
+        error: 'Missing required fields',
+        missingFields
+      });
+    }
+
+    // Prepare update payload (only validated/trimmed data)
+    const updateData = {};
+    Object.keys(trimmedData).forEach(field => {
+      updateData[`extractedData.${field}`] = trimmedData[field];
+    });
+
+    // CRITICAL EMAIL FIX (keep root-level email)
+    const finalEmail = trimmedData.email || currentTicket.email || currentTicket.extractedData?.email;
     updateData.email = finalEmail;
+    updateData['extractedData.email'] = finalEmail;
 
-    // Also keep extractedData.email in sync
-    updateData["extractedData.email"] = finalEmail;
-
-    // 3) Mark ticket completed
-    updateData.status = "completed";
+    // Mark ticket completed
+    updateData.status = 'completed';
     updateData.completedAt = new Date();
     updateData.lastUpdated = new Date();
 
     await ticketRef.update(updateData);
-
-    console.log('✅ Ticket updated successfully:', sessionId);
-    console.log('🔄 Updating ticket with missing fields:', { sessionId, missingFieldsData });
+    console.log('Ticket updated successfully', sessionId, 'with validated data');
 
     res.json({
       success: true,
-      message: "Ticket updated successfully",
+      message: 'Ticket updated successfully',
       sessionId
     });
 
   } catch (error) {
-    console.error('❌ Error updating ticket:', error);
-    res.status(500).json({
-      error: 'Failed to update ticket',
-      details: error.message
-    });
+    console.error('Error updating ticket', error);
+    res.status(500).json({ error: 'Failed to update ticket', details: error.message });
   }
 });
+
+
 
 
 // ✅ NEW SECURE ENDPOINT
