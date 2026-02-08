@@ -1534,6 +1534,7 @@ app.post('/api/create-payment-session', async (req, res) => {
     // 3. UPDATE FIRESTORE WITH PENDING PAYMENT
     await ticketRef.update({
       stripeCheckoutSessionId: stripeSession.id,
+      stripeCheckoutUrl: stripeSession.url,
       paymentStatus: 'pending',
       lastUpdated: new Date(),
     });
